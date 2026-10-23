@@ -26,7 +26,7 @@ The core reads Mach-O headers to identify ARM64, x86_64, and universal engines. 
 
 Native engines appear first in the interface. Intel engines are labelled as requiring Rosetta on Apple Silicon. An environment remains attached to its selected engine; there is no automatic fallback to another architecture.
 
-An optional `vela-runtime.json` file declares whether an engine supports 32-bit Windows executables. For a runtime declaring `supports_x86_32: false`, Vela rejects recognized i386 PE launch targets. This does not inspect every payload or child process inside an installer.
+An optional `vela-runtime.json` file declares whether an engine supports 32-bit Windows executables. When no declaration exists, an Intel engine with matching PE headers for i386 `ntdll.dll` and x86_64 `ntdll.dll`, `wow64.dll`, `wow64cpu.dll`, and `wow64win.dll` is identified as providing WoW64. Missing or malformed modules leave support unknown. An explicit declaration, including a restriction, always wins; ARM64/Intel alone is not used to infer 32-bit support. For a runtime declaring `supports_x86_32: false`, Vela rejects recognized i386 PE launch targets. This does not inspect every payload or child process inside an installer.
 
 ## Wine, CPU translation, and graphics
 

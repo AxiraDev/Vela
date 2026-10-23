@@ -50,7 +50,7 @@ From the project root:
 git init -b main
 git add .cargo .github .gitattributes .gitignore LICENSE README.md README.ru.md THIRD_PARTY.md CONTRIBUTING.md SECURITY.md CHANGELOG.md Portable.example core docs macos runtime scripts tests vendor
 git diff --cached --stat
-git commit -m "Prepare Vela 0.4.0 preview"
+git commit -m "Prepare Vela 0.4.1 preview"
 ~~~
 
 Review the staged files before committing. Generated apps, engines, libraries, and build output are excluded by .gitignore.
@@ -79,10 +79,10 @@ From the project root:
 ~~~sh
 cargo test --locked --offline --manifest-path core/Cargo.toml
 bash scripts/build.sh
-cp build/Vela-preview.zip build/Vela-0.4.0-preview.zip
-python3 scripts/package_source.py --out build/Vela-0.4.0-source.zip
+cp build/Vela-preview.zip build/Vela-0.4.1-preview.zip
+python3 scripts/package_source.py --out build/Vela-0.4.1-source.zip
 cd build
-shasum -a 256 Vela-0.4.0-preview.zip Vela-0.4.0-source.zip > SHA256SUMS
+shasum -a 256 Vela-0.4.1-preview.zip Vela-0.4.1-source.zip > SHA256SUMS
 cd ..
 ~~~
 
@@ -92,11 +92,11 @@ For the prepared release, use:
 
 | Field | Value |
 | --- | --- |
-| Tag | `v0.4.0-preview.1` |
-| Title | `Vela 0.4.0 Preview` |
+| Tag | `v0.4.1-preview.1` |
+| Title | `Vela 0.4.1 Preview` |
 | Status | Pre-release |
-| App version / build | `0.4.0 / 6` |
-| Release body | Contents of `docs/releases/v0.4.0-preview.1.md` |
+| App version / build | `0.4.1 / 7` |
+| Release body | Contents of `docs/releases/v0.4.1-preview.1.md` |
 
 Create the tag against the commit whose source produced the uploaded app. Attach the app ZIP, the prepared source ZIP, and SHA256SUMS.
 

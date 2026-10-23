@@ -68,12 +68,23 @@ pub fn locate(path: &str) -> Result<Location, String> {
     let server_arches = file_architectures(&server)?;
     let arm = arches.iter().any(|s| s == "arm64");
     if arm && !server_arches.iter().any(|s| s == "arm64") { return Err(local("У нативного Wine должен быть нативный ARM64 wineserver", "A native Wine engine requires a native ARM64 wineserver").into()); }
-    let architecture = if arm { "arm64" } else if arches.iter().any(|s| s == "x86_64") { "x86_64" } else { "unknown" }.into();
+    let architecture: String = if arm { "arm64" } else if arches.iter().any(|s| s == "x86_64") { "x86_64" } else { "unknown" }.into();
     let fex = arm && root.as_ref().map(|p| p.join("lib/wine/aarch64-windows/libarm64ecfex.dll").is_file()).unwrap_or(false);
     let backend = if fex { "arm64-fex" } else if arm { "arm64" } else if arches.iter().any(|s| s == "x86_64") { "rosetta" } else { "unknown" }.into();
-    let supports_x86_32 = root.as_ref().and_then(|p| fs::read(p.join("vela-runtime.json")).ok())
+    let declared_x86_32 = root.as_ref().and_then(|p| fs::read(p.join("vela-runtime.json")).ok())
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
         .and_then(|v| v.get("supports_x86_32").and_then(|v| v.as_bool()));
+    // A 64-bit Mac executable alone does not establish 32-bit Windows support.
+    // Respect explicit runtime restrictions before inspecting Intel WoW64 files.
+    let supports_x86_32 = declared_x86_32.or_else(|| {
+        let root = root.as_ref()?;
+        if architecture != "x86_64" { return None; }
+        let modules = root.join("lib/wine");
+        let present = pe_machine(&modules.join("i386-windows/ntdll.dll")) == Some(0x014c)
+            && ["ntdll.dll", "wow64.dll", "wow64cpu.dll", "wow64win.dll"].iter()
+                .all(|name| pe_machine(&modules.join("x86_64-windows").join(name)) == Some(0x8664));
+        present.then_some(true)
+    });
     Ok(Location { wine, server, root, architecture, backend, supports_x86_32 })
 }
 
@@ -94,6 +105,31 @@ pub fn pe_machine(path: &Path) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn windows_support_is_separate_from_mac_architecture_and_respects_runtime_policy() {
+        let root = std::env::temp_dir().join(format!("vela-wow64-layout-{}", crate::uid()));
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(root.join("lib/wine/i386-windows")).unwrap();
+        fs::create_dir_all(root.join("lib/wine/x86_64-windows")).unwrap();
+        let mut macho=vec![0xcf,0xfa,0xed,0xfe];macho.extend(0x01000007u32.to_le_bytes());
+        for name in ["wine","wineserver"] { fs::write(root.join("bin").join(name),&macho).unwrap(); }
+        assert_eq!(locate(root.to_str().unwrap()).unwrap().supports_x86_32,None);
+        let mut pe=vec![0;134];pe[..2].copy_from_slice(b"MZ");pe[60..64].copy_from_slice(&128u32.to_le_bytes());pe[128..132].copy_from_slice(b"PE\0\0");
+        pe[132..134].copy_from_slice(&0x014cu16.to_le_bytes());fs::write(root.join("lib/wine/i386-windows/ntdll.dll"),&pe).unwrap();
+        pe[132..134].copy_from_slice(&0x8664u16.to_le_bytes());
+        for name in ["ntdll.dll","wow64.dll","wow64cpu.dll","wow64win.dll"] { fs::write(root.join("lib/wine/x86_64-windows").join(name),&pe).unwrap(); }
+        assert_eq!(locate(root.to_str().unwrap()).unwrap().supports_x86_32,Some(true));
+        fs::write(root.join("lib/wine/x86_64-windows/wow64cpu.dll"),b"not a Windows module").unwrap();
+        assert_eq!(locate(root.to_str().unwrap()).unwrap().supports_x86_32,None);
+        fs::write(root.join("lib/wine/x86_64-windows/wow64cpu.dll"),&pe).unwrap();
+        fs::write(root.join("vela-runtime.json"),r#"{"supports_x86_32":false}"#).unwrap();
+        assert_eq!(locate(root.to_str().unwrap()).unwrap().supports_x86_32,Some(false));
+        fs::remove_file(root.join("vela-runtime.json")).unwrap();
+        macho[4..8].copy_from_slice(&0x0100000cu32.to_le_bytes());
+        for name in ["wine","wineserver"] { fs::write(root.join("bin").join(name),&macho).unwrap(); }
+        assert_eq!(locate(root.to_str().unwrap()).unwrap().supports_x86_32,None);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test] fn windows_executable_bitness_is_read_from_pe_header() {
         let path = std::env::temp_dir().join(format!("vela-pe-{}", crate::uid()));
         let mut file = vec![0u8; 134];

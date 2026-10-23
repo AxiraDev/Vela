@@ -2,6 +2,13 @@
 
 This file describes the prepared preview. Publication dates and future release entries will be added when releases are published.
 
+## 0.4.1 — Preview, build 7
+
+- Replace engine dropdowns with cards showing Windows application bitness first and Mac architecture/Rosetta requirements separately.
+- Show the same capability summary in the engine library and environment header.
+- Infer Intel WoW64 support only from matching Windows module headers when no explicit runtime declaration exists; preserve explicit restrictions.
+- Disable incompatible engine cards for launcher installers that require 32-bit support.
+
 ## 0.4.0 — Preview, build 6
 
 - Add environment deletion from settings and the sidebar context menu, with confirmation and a scoped Wine stop.

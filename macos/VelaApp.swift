@@ -2,23 +2,6 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-struct Engine: Codable, Identifiable, Sendable {
-    let id: String
-    let name: String
-    let wine: String
-    let version: String
-    let architecture: String?
-    let backend: String?
-    let supports_x86_32: Bool?
-    var isNative: Bool { architecture == "arm64" }
-    var needsRosetta: Bool { backend == "rosetta" }
-    var compatibility: String {
-        if backend == "arm64-fex" { return supports_x86_32 == false ? tr("Без Rosetta · Windows 64 бит") : tr("ARM64 + FEX · без Rosetta") }
-        if isNative { return tr("ARM64 · без Rosetta") }
-        if needsRosetta { return tr("Intel · требуется Rosetta") }
-        return tr("Архитектура не определена")
-    }
-}
 struct Shortcut: Codable, Identifiable, Sendable {
     let id: String
     let name: String
@@ -303,7 +286,7 @@ struct VelaApp: App {
                 Button(tr("О Vela")) {
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .applicationName: "Vela",
-                        .applicationVersion: "0.4.0 · Preview",
+                        .applicationVersion: "0.4.1 · Preview",
                         .credits: NSAttributedString(string: tr("Независимая открытая оболочка Wine\nSwiftUI + Rust · MIT\nWine и графические компоненты имеют собственные лицензии."))
                     ])
                 }
@@ -475,8 +458,7 @@ struct EnginesView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(engine.name).font(.headline)
                         Text(engine.version).font(.caption).foregroundStyle(.secondary)
-                        Label(engine.compatibility, systemImage: engine.isNative ? "checkmark.shield" : "info.circle")
-                            .font(.caption).foregroundStyle(engine.isNative ? .green : .orange)
+                                EngineSupportView(engine: engine)
                                 Text(engine.wine).font(.caption2).foregroundStyle(.tertiary).lineLimit(2).textSelection(.enabled)
                             }
                             Spacer()
@@ -522,7 +504,7 @@ struct CreateBottleView: View {
             Label(tr("Новое окружение"), systemImage: "shippingbox").font(.title2.weight(.semibold))
             Text(tr("Каждое окружение хранит собственные программы, реестр и настройки Windows.")).foregroundStyle(.secondary)
             TextField(tr("Название, например «Работа»"), text: $name).textFieldStyle(.roundedBorder)
-            Picker(tr("Движок Wine"), selection: $engineID) { ForEach(model.engines) { Text("\($0.name) · \($0.compatibility)").tag($0.id) } }
+            EnginePickerView(engines: model.engines, selection: $engineID)
             Picker(tr("Масштаб Windows"), selection: $dpi) {
                 ForEach([96, 120, 144, 168, 192, 240, 288], id: \.self) { value in Text("\(value * 100 / 96)%").tag(value) }
             }
@@ -546,7 +528,7 @@ struct CreateBottleView: View {
                 }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engineID.isEmpty || model.busy)
                     .keyboardShortcut(.defaultAction)
             }
-        }.padding(28).frame(width: 490).onAppear {
+        }.padding(28).frame(width: 590).onAppear {
             engineID = model.engines.first?.id ?? ""
             dpi = (NSScreen.main?.backingScaleFactor ?? 1) >= 2 ? 192 : 96
         }.interactiveDismissDisabled(model.busy)
@@ -568,9 +550,9 @@ struct BottleView: View {
                     Text(bottle.name).font(.system(size: 30, weight: .semibold, design: .rounded))
                     Text(model.engines.first { $0.id == bottle.engine_id }?.version ?? tr("Движок недоступен")).font(.callout).foregroundStyle(.secondary)
                     if let engine = model.engines.first(where: { $0.id == bottle.engine_id }) {
-                        Text(engine.compatibility).font(.caption).foregroundStyle(engine.isNative ? .green : .orange)
+                        EngineSupportView(engine: engine)
                     }
-                    Text(bottle.status == "ready" ? tr("Окружение готово · 64-bit") : tr("Инициализация не завершена"))
+                    Text(bottle.status == "ready" ? tr("Окружение готово.") : tr("Инициализация не завершена"))
                         .font(.caption).foregroundStyle(bottle.status == "ready" ? .green : .orange)
                 }
                 Spacer()

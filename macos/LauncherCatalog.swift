@@ -90,10 +90,7 @@ struct InstallLauncherView: View {
             Text(tr("Vela создаст новое окружение и откроет мастер установки Windows. Игры этого лаунчера будут храниться в том же окружении."))
                 .foregroundStyle(.secondary)
             TextField(tr("Название окружения"), text: $name).textFieldStyle(.roundedBorder)
-            Picker(tr("Движок Wine"), selection: $engineID) {
-                Text(tr("Выберите движок")).tag("")
-                ForEach(model.engines) { Text("\($0.name) · \($0.compatibility)").tag($0.id) }
-            }
+            EnginePickerView(engines: model.engines, selection: $engineID, requires32Bit: entry.requires_wow64)
             if let engine {
                 if !entry.accepts(engine) {
                     Label(tr("Нужен движок с поддержкой Windows 32/64 бит (WoW64). Выбранный движок поддерживает только 64 бита."), systemImage: "exclamationmark.triangle")
@@ -124,7 +121,7 @@ struct InstallLauncherView: View {
                 Button(tr("Скачать и установить")) { start() }.buttonStyle(.borderedProminent)
                     .disabled(!allowed).keyboardShortcut(.defaultAction)
             }
-        }.padding(28).frame(width: 590).onAppear {
+        }.padding(28).frame(width: 640).onAppear {
             name = entry.name
             engineID = model.engines.first(where: entry.accepts)?.id ?? model.engines.first?.id ?? ""
             dpi = (NSScreen.main?.backingScaleFactor ?? 1) >= 2 ? 192 : 96

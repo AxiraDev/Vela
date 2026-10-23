@@ -211,3 +211,13 @@
 "Этот Intel-движок зависит от Rosetta. Для работы после прекращения её поддержки выберите ARM64 + FEX." = "This Intel engine depends on Rosetta. Choose ARM64 + FEX for a configuration that does not rely on Rosetta.";
 "Этот движок запускает 64-битные Windows-программы. Старые 32-битные приложения и установщики пока не поддерживаются." = "This engine runs 64-bit Windows applications. Older 32-bit applications and installers are not supported.";
 "“%@” and all its Windows applications, files, saved data, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept." = "“%@” and all its Windows applications, files, saved data, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept.";
+"Windows apps: 32-bit and 64-bit" = "Windows apps: 32-bit and 64-bit";
+"Windows apps: 64-bit only" = "Windows apps: 64-bit only";
+"Windows apps: 32/64-bit support unverified" = "Windows apps: 32/64-bit support unverified";
+"Mac engine: %@" = "Mac engine: %@";
+"Requires Rosetta on Apple Silicon" = "Requires Rosetta on Apple Silicon";
+"Runs without Rosetta" = "Runs without Rosetta";
+"Cannot run this 32-bit installer" = "Cannot run this 32-bit installer";
+"Selected" = "Selected";
+"Not selected" = "Not selected";
+"32/64-bit describes Windows applications. ARM64/Intel describes the Mac engine." = "32/64-bit describes Windows applications. ARM64/Intel describes the Mac engine.";
