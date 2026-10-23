@@ -25,3 +25,17 @@ fn newline_request_finishes_even_if_stdin_writer_stays_open() {
     drop(writer);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn core_errors_use_the_interface_language() {
+    for (language,expected) in [("en","Specify an absolute engine path"),("ru","Укажите абсолютный путь к движку")] {
+        let root=std::env::temp_dir().join(format!("vela-language-{}-{}",std::process::id(),language));
+        let mut child=Command::new(env!("CARGO_BIN_EXE_vela-core"))
+            .env("VELA_HOME",&root).env("VELA_LANGUAGE",language)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(b"{\"op\":\"add_engine\",\"path\":\"relative/wine\"}\n").unwrap();
+        let output=child.wait_with_output().unwrap();let reply:serde_json::Value=serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(reply["ok"],false);assert_eq!(reply["error"],expected);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

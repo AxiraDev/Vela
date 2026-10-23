@@ -25,37 +25,37 @@ pub(crate) struct Installation {
 }
 
 pub(crate) fn catalog() -> Result<Vec<Entry>> {
-    serde_json::from_str(include_str!("../resources/launchers.json")).map_err(|e| format!("Ошибка каталога: {e}"))
+    serde_json::from_str(include_str!("../resources/launchers.json")).map_err(|e| local(format!("Ошибка каталога: {e}"), format!("Catalog error: {e}")))
 }
 
 fn validate_installer(path: &Path, entry: &Entry, engine: &Engine) -> Result<()> {
     if entry.requires_wow64 && engine.supports_x86_32 == Some(false) {
-        return Err("Установщик этого лаунчера требует поддержки Windows 32/64 бит (WoW64). Выбранный движок поддерживает только 64 бит. Подключите совместимый движок в разделе «Движки Wine».".into());
+        return Err(local("Установщик этого лаунчера требует поддержки Windows 32/64 бит (WoW64). Выбранный движок поддерживает только 64 бит. Подключите совместимый движок в разделе «Движки Wine».", "This launcher's installer requires Windows 32/64-bit support (WoW64). The selected engine supports 64-bit programs only. Add a compatible engine under Wine engines.").into());
     }
     let size = fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if size < 64 || size > 512 * 1024 * 1024 { return Err("Недопустимый размер установщика (максимум 512 МБ)".into()); }
+    if size < 64 || size > 512 * 1024 * 1024 { return Err(local("Недопустимый размер установщика (максимум 512 МБ)", "Invalid installer size (maximum 512 MiB)").into()); }
     let expected = Path::new(&entry.filename).extension().and_then(|s| s.to_str()).unwrap_or("");
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    if !ext.eq_ignore_ascii_case(expected) { return Err(format!("Для этого лаунчера нужен установщик {expected}")); }
+    if !ext.eq_ignore_ascii_case(expected) { return Err(local(format!("Для этого лаунчера нужен установщик {expected}"), format!("This launcher needs an {expected} installer"))); }
     match expected {
         "exe" => {
-            let machine = engine::pe_machine(path).ok_or("Сервер вернул не установщик Windows. Загрузите файл с официального сайта.")?;
-            if ![0x014c, 0x8664].contains(&machine) { return Err("Нужен установщик Windows x86 или x64".into()); }
-            if machine == 0x014c && engine.supports_x86_32 == Some(false) { return Err("Этот установщик 32-битный. Выберите движок с поддержкой WoW64.".into()); }
+            let machine = engine::pe_machine(path).ok_or(local("Сервер вернул не установщик Windows. Загрузите файл с официального сайта.", "The server did not return a Windows installer. Download the file from the official website."))?;
+            if ![0x014c, 0x8664].contains(&machine) { return Err(local("Нужен установщик Windows x86 или x64", "Choose a Windows x86 or x64 installer").into()); }
+            if machine == 0x014c && engine.supports_x86_32 == Some(false) { return Err(local("Этот установщик 32-битный. Выберите движок с поддержкой WoW64.", "This installer is 32-bit. Choose an engine with WoW64 support.").into()); }
         }
         "msi" => {
             let mut magic = [0; 8]; File::open(path).and_then(|mut f| f.read_exact(&mut magic)).map_err(|e| e.to_string())?;
-            if magic != [0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1] { return Err("Загруженный файл не является MSI-контейнером".into()); }
+            if magic != [0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1] { return Err(local("Загруженный файл не является MSI-контейнером", "The downloaded file is not an MSI container").into()); }
         }
-        _ => return Err("Для этого лаунчера нет автоматической установки".into()),
+        _ => return Err(local("Для этого лаунчера нет автоматической установки", "This launcher does not have an automatic installer preset").into()),
     }
     Ok(())
 }
 
 pub(crate) fn install(store: &Store, r: &Request) -> Result<Value> {
-    let entry = catalog()?.into_iter().find(|e| e.id == r.launcher_id).ok_or("Лаунчер не найден")?;
-    if entry.download.is_none() { return Err("Для этого лаунчера автоматическая установка недоступна".into()); }
-    let engine = store.read()?.engines.into_iter().find(|e| e.id == r.engine_id).ok_or("Выберите движок Wine")?;
+    let entry = catalog()?.into_iter().find(|e| e.id == r.launcher_id).ok_or(local("Лаунчер не найден", "Launcher not found"))?;
+    if entry.download.is_none() { return Err(local("Для этого лаунчера автоматическая установка недоступна", "Automatic installation is unavailable for this launcher").into()); }
+    let engine = store.read()?.engines.into_iter().find(|e| e.id == r.engine_id).ok_or(local("Выберите движок Wine", "Choose a Wine engine"))?;
     let name = clean_name(&r.name)?;
     if let Some(dpi) = r.dpi { validate_dpi(dpi)?; }
     let source = absolute_file(&r.path)?;
@@ -168,13 +168,13 @@ mod tests {
 
 fn start(store: &Store, id: &str) -> Result<Value> {
     let (b, e) = store.pair(id)?;
-    let installation = b.installation.as_ref().ok_or("В этом окружении нет установки лаунчера")?;
+    let installation = b.installation.as_ref().ok_or(local("В этом окружении нет установки лаунчера", "This environment has no launcher installation"))?;
     let path = absolute_file(&installation.installer_path)?;
-    let entry = catalog()?.into_iter().find(|e| e.id == installation.launcher_id).ok_or("Лаунчер не найден")?;
+    let entry = catalog()?.into_iter().find(|e| e.id == installation.launcher_id).ok_or(local("Лаунчер не найден", "Launcher not found"))?;
     validate_installer(&path, &entry, &e)?;
-    let result = launch(store, &b, &e, &executable_args(&path, &[])?, path.parent().and_then(Path::to_str), &format!("Установка {}", entry.name));
+    let result = launch(store, &b, &e, &executable_args(&path, &[])?, path.parent().and_then(Path::to_str), &local(format!("Установка {}", entry.name), format!("Install {}", entry.name)));
     store.update(|s| {
-        let i = bottle_mut(s, id)?.installation.as_mut().ok_or("Установка не найдена")?;
+        let i = bottle_mut(s, id)?.installation.as_mut().ok_or(local("Установка не найдена", "Installation not found"))?;
         i.status = if result.is_ok() { "pending" } else { "failed" }.into(); Ok(())
     })?;
     let mut value = result?;

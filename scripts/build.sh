@@ -16,8 +16,9 @@ cp "$cargo_target/release/vela-core" "$app_path/Contents/MacOS/vela-core"
 cp macos/Info.plist "$app_path/Contents/Info.plist"
 bash scripts/build_icon.sh "$build_dir/AppIcon.icns"
 cp "$build_dir/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
+cp -R macos/Resources/*.lproj "$app_path/Contents/Resources/"
 swiftc -parse-as-library -O -swift-version 6 -target "$(uname -m)-apple-macos14.0" -module-cache-path "$build_dir/cache" \
-  macos/VelaApp.swift macos/LauncherCatalog.swift macos/LauncherDownload.swift -o "$app_path/Contents/MacOS/Vela" \
+  macos/*.swift -o "$app_path/Contents/MacOS/Vela" \
   -framework SwiftUI -framework AppKit -framework UniformTypeIdentifiers
 cp LICENSE "$app_path/Contents/Resources/LICENSE"
 cp THIRD_PARTY.md "$app_path/Contents/Resources/THIRD_PARTY.md"

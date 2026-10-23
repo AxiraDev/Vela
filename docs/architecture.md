@@ -44,7 +44,7 @@ The normal root is `~/Library/Application Support/Vela`. It contains:
 
 | Location | Purpose |
 | --- | --- |
-| `state.json` | Engines, environments, shortcuts, variables, and saved scaling |
+| `state.json` | Engines, active/deleted environments, shortcuts, variables, and saved scaling |
 | `prefixes/<id>/` | Environment files and Windows registry |
 | `logs/` | Per-operation output |
 | `installers/<id>/` | Cached official launcher installer for retry |
@@ -60,6 +60,20 @@ Initialization runs wineboot and checks its exit status. Because Wine saves regi
 Windows scaling writes the environment's `HKCU\Control Panel\Desktop\LogPixels` registry value. Existing windows need to be restarted to use the new setting. Vela does not kill them as part of a scale change.
 
 Stopping an environment invokes its matching wineserver with its explicit prefix. An empty-output exit code of 1 is treated as an already stopped server.
+
+## Deletion and recovery
+
+`delete_environment` acquires a nonblocking per-environment OS file lock, invokes the matching Wine server with `-k`, and waits for it with `-w`. If stopping fails, the environment remains active. A successful operation atomically moves its record from `bottles` to the defaulted `deleted_bottles` list. Prefix, shortcut, and installer paths stay unchanged, so restoration does not rewrite application paths.
+
+Vela Trash keeps files until `purge_environment` is separately confirmed. Purging rejects active environments, stops the selected server again, and removes only that ID's prefix, installer cache, and logs. Parent/final prefix symlinks and installer/log directory symlinks are rejected; internal Wine symlinks are not followed by recursive deletion. A failed partial purge leaves its trash record available to retry. The manager does not automatically empty its trash.
+
+Launch and initialization share the per-environment lock so they cannot race with deletion. Locks are held by open file descriptors and released by the kernel on exit or crash. The small files in `locks/` can remain after release. State writes retain their separate atomic replacement lock.
+
+Older Vela versions do not preserve the deleted-environment metadata when rewriting state. Avoid opening a library containing Vela Trash records with an older app version.
+
+## Interface languages
+
+English and Russian strings ship in `.lproj` resources. The default `system` preference matches the device's preferred supported language, falling back to English. An explicit `en` or `ru` preference is saved in UserDefaults and applies immediately to the interface. The core receives the resolved `VELA_LANGUAGE` so its generated errors and messages use the same language. User-provided names and paths are kept verbatim; Wine and Windows application output is not translated.
 
 ## Updates
 

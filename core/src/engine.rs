@@ -1,3 +1,4 @@
+use crate::local;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -51,22 +52,22 @@ pub fn file_architectures(path: &Path) -> Result<Vec<String>, String> {
 
 pub fn locate(path: &str) -> Result<Location, String> {
     let p = PathBuf::from(path);
-    if !p.is_absolute() { return Err("Укажите абсолютный путь к движку".into()); }
+    if !p.is_absolute() { return Err(local("Укажите абсолютный путь к движку", "Specify an absolute engine path").into()); }
     let candidates = [p.clone(), p.join("bin/wine"), p.join("bin/wine64"), p.join("dist/bin/wine"),
         p.join("Contents/Resources/wine/bin/wine"), p.join("Contents/Resources/wine/bin/wine64"),
         p.join("Contents/Resources/bin/wine"), p.join("Contents/SharedSupport/runtime/dist/bin/wine")];
-    let chosen = candidates.iter().find(|p| p.is_file()).ok_or("Выберите Wine.app, папку runtime или исполняемый файл wine")?;
+    let chosen = candidates.iter().find(|p| p.is_file()).ok_or(local("Выберите Wine.app, папку runtime или исполняемый файл wine", "Choose Wine.app, a runtime folder, or the wine executable"))?;
     // Preserve bin/wine's path, including a symlink into an intact signed loader bundle.
     // Resolving the loader and looking beside it would lose the matching wineserver.
-    let parent = fs::canonicalize(chosen.parent().ok_or("Не найдена папка Wine")?).map_err(|e| e.to_string())?;
-    let wine = parent.join(chosen.file_name().ok_or("Некорректный путь Wine")?);
+    let parent = fs::canonicalize(chosen.parent().ok_or(local("Не найдена папка Wine", "Wine folder not found"))?).map_err(|e| e.to_string())?;
+    let wine = parent.join(chosen.file_name().ok_or(local("Некорректный путь Wine", "Invalid Wine path"))?);
     let root = wine.ancestors().skip(1).take(8).find(|p| p.join("bin/wineserver").is_file() && p.join("lib/wine").is_dir()).map(Path::to_path_buf);
     let server = root.as_ref().map(|p| p.join("bin/wineserver")).unwrap_or(parent.join("wineserver"));
-    if !server.is_file() { return Err("Не найден wineserver из той же сборки".into()); }
+    if !server.is_file() { return Err(local("Не найден wineserver из той же сборки", "The matching wineserver was not found").into()); }
     let arches = file_architectures(&wine)?;
     let server_arches = file_architectures(&server)?;
     let arm = arches.iter().any(|s| s == "arm64");
-    if arm && !server_arches.iter().any(|s| s == "arm64") { return Err("У нативного Wine должен быть нативный ARM64 wineserver".into()); }
+    if arm && !server_arches.iter().any(|s| s == "arm64") { return Err(local("У нативного Wine должен быть нативный ARM64 wineserver", "A native Wine engine requires a native ARM64 wineserver").into()); }
     let architecture = if arm { "arm64" } else if arches.iter().any(|s| s == "x86_64") { "x86_64" } else { "unknown" }.into();
     let fex = arm && root.as_ref().map(|p| p.join("lib/wine/aarch64-windows/libarm64ecfex.dll").is_file()).unwrap_or(false);
     let backend = if fex { "arm64-fex" } else if arm { "arm64" } else if arches.iter().any(|s| s == "x86_64") { "rosetta" } else { "unknown" }.into();

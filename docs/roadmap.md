@@ -6,7 +6,6 @@ These are intended directions, not shipping features or delivery commitments.
 
 - Track application startup, process trees, and exit results.
 - Add stopped-environment snapshots and restore.
-- Add safe environment deletion with clear data handling.
 - Edit existing shortcuts and discover installed applications.
 - Rotate logs and improve recovery after interrupted initialization or a stale lock.
 - Improve library relocation and portable-mode path handling.
@@ -30,7 +29,7 @@ These are intended directions, not shipping features or delivery commitments.
 
 ## Interface and release quality
 
-- Add English interface localization.
+- Expand localization beyond English and Russian.
 - Prepare Developer ID signing and Apple notarization.
 - Improve diagnostics, accessibility, and onboarding.
 - Add ongoing automated checks and reproducible release packaging.

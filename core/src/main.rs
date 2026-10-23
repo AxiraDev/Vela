@@ -4,11 +4,17 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::os::fd::AsRawFd;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod engine;
 mod launcher;
+mod removal;
+
+fn local<T>(ru: T, en: T) -> T {
+    if std::env::var("VELA_LANGUAGE").as_deref() == Ok("en") { en } else { ru }
+}
 
 type Result<T> = std::result::Result<T, String>;
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -21,6 +27,8 @@ struct State {
     engines: Vec<Engine>,
     #[serde(default)]
     bottles: Vec<Bottle>,
+    #[serde(default)]
+    deleted_bottles: Vec<Bottle>,
 }
 fn schema() -> u32 { 1 }
 
@@ -87,13 +95,15 @@ fn uid() -> String {
 struct Store { root: PathBuf }
 struct Lock(PathBuf);
 impl Drop for Lock { fn drop(&mut self) { let _ = fs::remove_file(&self.0); } }
+struct OperationLock { _file: File }
+unsafe extern "C" { fn flock(fd: std::os::raw::c_int, operation: std::os::raw::c_int) -> std::os::raw::c_int; }
 
 impl Store {
     fn new(root: PathBuf) -> Result<Self> {
-        if !root.is_absolute() { return Err("Папка данных должна иметь абсолютный путь".into()); }
+        if !root.is_absolute() { return Err(local("Папка данных должна иметь абсолютный путь", "The data folder must use an absolute path").into()); }
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
-        for dir in ["prefixes", "logs"] { fs::create_dir_all(root.join(dir)).map_err(|e| e.to_string())?; }
+        for dir in ["prefixes", "logs", "locks"] { fs::create_dir_all(root.join(dir)).map_err(|e| e.to_string())?; }
         Ok(Self { root })
     }
     fn lock(&self) -> Result<Lock> {
@@ -103,15 +113,28 @@ impl Store {
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut f) => { let _ = writeln!(f, "{}", std::process::id()); return Ok(Lock(path)); }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && start.elapsed() < Duration::from_secs(5) => std::thread::sleep(Duration::from_millis(25)),
-                Err(e) => return Err(format!("Не удалось заблокировать state.json: {e}. Если Vela аварийно завершилась, проверьте state.lock.")),
+                Err(e) => return Err(local(format!("Не удалось заблокировать state.json: {e}. Если Vela аварийно завершилась, проверьте state.lock."), format!("Could not lock state.json: {e}. If Vela crashed, check state.lock."))),
             }
         }
+    }
+    fn operation_lock(&self, id: &str) -> Result<OperationLock> {
+        self.prefix(id)?;
+        let path = self.root.join("locks").join(format!("{id}.lock"));
+        let mut file = OpenOptions::new().write(true).create(true).truncate(false).open(&path).map_err(|e| e.to_string())?;
+        // LOCK_EX | LOCK_NB: the kernel releases this lock even if the core is
+        // killed or crashes. The open file remains owned by OperationLock.
+        if unsafe { flock(file.as_raw_fd(), 2 | 4) } != 0 {
+            return Err(local("Окружение занято другой операцией. Дождитесь её завершения.", "This environment is busy. Wait for the current operation to finish.").into());
+        }
+        file.set_len(0).map_err(|e| e.to_string())?;
+        writeln!(file, "{}", std::process::id()).map_err(|e| e.to_string())?;
+        Ok(OperationLock { _file: file })
     }
     fn read(&self) -> Result<State> {
         let file = self.root.join("state.json");
         if !file.exists() { return Ok(State { schema: 1, ..State::default() }); }
-        let mut s: State = serde_json::from_slice(&fs::read(file).map_err(|e| e.to_string())?).map_err(|e| format!("Не удалось прочитать данные: {e}"))?;
-        if s.schema != 1 { return Err("Эта версия Vela не поддерживает формат данных".into()); }
+        let mut s: State = serde_json::from_slice(&fs::read(file).map_err(|e| e.to_string())?).map_err(|e| local(format!("Не удалось прочитать данные: {e}"), format!("Could not read library data: {e}")))?;
+        if s.schema != 1 { return Err(local("Эта версия Vela не поддерживает формат данных", "This Vela version does not support the library format").into()); }
         for e in &mut s.engines {
                 if let Ok(location) = engine::locate(&e.wine) {
                     e.server = location.server.to_string_lossy().into_owned();
@@ -138,15 +161,15 @@ impl Store {
         Ok(result)
     }
     fn prefix(&self, id: &str) -> Result<PathBuf> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') { return Err("Некорректный идентификатор окружения".into()); }
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') { return Err(local("Некорректный идентификатор окружения", "Invalid environment ID").into()); }
         let p = self.root.join("prefixes").join(id);
-        if p.is_symlink() { return Err("Папка окружения не должна быть символической ссылкой".into()); }
+        if self.root.join("prefixes").is_symlink() || p.is_symlink() { return Err(local("Папка окружения не должна быть символической ссылкой", "The environment folder must not be a symbolic link").into()); }
         Ok(p)
     }
     fn pair(&self, id: &str) -> Result<(Bottle, Engine)> {
         let s = self.read()?;
-        let b = s.bottles.iter().find(|b| b.id == id).ok_or("Окружение не найдено")?.clone();
-        let e = s.engines.iter().find(|e| e.id == b.engine_id).ok_or("Движок не найден")?.clone();
+        let b = s.bottles.iter().find(|b| b.id == id).ok_or(local("Окружение не найдено", "Environment not found"))?.clone();
+        let e = s.engines.iter().find(|e| e.id == b.engine_id).ok_or(local("Движок не найден", "Engine not found"))?.clone();
         Ok((b, e))
     }
     fn log(&self, b: &Bottle, label: &str) -> Result<(PathBuf, File)> {
@@ -154,32 +177,35 @@ impl Store {
         let path = self.root.join("logs").join(&name);
         let mut file = File::create(&path).map_err(|e| e.to_string())?;
         writeln!(file, "Vela · {label}\nEnvironment: {}\n", b.name).map_err(|e| e.to_string())?;
-        self.update(|s| { bottle_mut(s, &b.id)?.last_log = Some(name); Ok(()) })?;
+        self.update(|s| {
+            s.bottles.iter_mut().chain(s.deleted_bottles.iter_mut()).find(|x| x.id == b.id)
+                .ok_or(local("Окружение не найдено", "Environment not found"))?.last_log = Some(name); Ok(())
+        })?;
         Ok((path, file))
     }
 }
 
-fn bottle_mut<'a>(s: &'a mut State, id: &str) -> Result<&'a mut Bottle> { s.bottles.iter_mut().find(|b| b.id == id).ok_or_else(|| "Окружение не найдено".into()) }
+fn bottle_mut<'a>(s: &'a mut State, id: &str) -> Result<&'a mut Bottle> { s.bottles.iter_mut().find(|b| b.id == id).ok_or_else(|| local("Окружение не найдено", "Environment not found").into()) }
 fn clean_name(name: &str) -> Result<String> {
     let name = name.trim();
-    if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) { return Err("Введите название длиной от 1 до 80 символов".into()); }
+    if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) { return Err(local("Введите название длиной от 1 до 80 символов", "Enter a name between 1 and 80 characters").into()); }
     Ok(name.to_string())
 }
 fn valid_environment(env: &BTreeMap<String, String>) -> Result<()> {
     for (key, value) in env {
         if key.is_empty() || key.as_bytes()[0].is_ascii_digit() || !key.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') {
-            return Err(format!("Недопустимое имя переменной: {key}"));
+            return Err(local(format!("Недопустимое имя переменной: {key}"), format!("Invalid variable name: {key}")));
         }
         if ["WINEPREFIX", "WINEARCH", "WINESERVER", "WINELOADER", "HOME", "PATH", "TMPDIR"].contains(&key.as_str()) || key.starts_with("DYLD_") || key.starts_with("LD_") || key.starts_with("VELA_") {
-            return Err(format!("Переменной {key} управляет Vela"));
+            return Err(local(format!("Переменной {key} управляет Vela"), format!("Vela manages the {key} variable")));
         }
-        if value.contains('\0') { return Err("Переменная содержит нулевой байт".into()); }
+        if value.contains('\0') { return Err(local("Переменная содержит нулевой байт", "A variable contains a null byte").into()); }
     }
     Ok(())
 }
 fn absolute_file(path: &str) -> Result<PathBuf> {
     let p = PathBuf::from(path);
-    if !p.is_absolute() || !p.is_file() { return Err(format!("Файл не найден: {path}")); }
+    if !p.is_absolute() || !p.is_file() { return Err(local(format!("Файл не найден: {path}"), format!("File not found: {path}"))); }
     fs::canonicalize(p).map_err(|e| e.to_string())
 }
 fn base_command(wine: &str) -> Command {
@@ -204,13 +230,13 @@ fn base_command(wine: &str) -> Command {
 fn runtime_command(e: &Engine, executable: &str) -> Result<Command> {
     let native = e.architecture == "arm64";
     if native && !engine::file_architectures(Path::new(executable))?.iter().any(|a| a == "arm64") {
-        return Err("Файлы ARM64-движка изменились или были заменены на Intel. Подключите проверенную нативную сборку заново.".into());
+        return Err(local("Файлы ARM64-движка изменились или были заменены на Intel. Подключите проверенную нативную сборку заново.", "ARM64 engine files have changed or were replaced with Intel binaries. Register a verified native build again.").into());
     }
     let mut c = base_command(executable);
     c.env("WINELOADER", &e.wine);
     if !e.server.is_empty() { c.env("WINESERVER", &e.server); }
     if e.backend == "arm64-fex" {
-        let root = e.runtime_root.as_ref().ok_or("Не найдена папка ARM64/FEX runtime")?;
+        let root = e.runtime_root.as_ref().ok_or(local("Не найдена папка ARM64/FEX runtime", "ARM64/FEX runtime folder not found"))?;
         let paths = [root.join("mesa-zink/lib"), root.join("ext/lib")];
         let paths: Vec<_> = paths.iter().filter(|p| p.is_dir()).collect();
         if !paths.is_empty() {
@@ -233,7 +259,7 @@ fn wait_bounded(child: &mut Child, timeout: Duration) -> Result<std::process::Ex
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? { return Ok(status); }
         if start.elapsed() >= timeout {
             let _ = child.kill(); let _ = child.wait();
-            return Err("Истекло время ожидания. Откройте журнал окружения; фоновые процессы Wine можно остановить кнопкой «Остановить».".into());
+            return Err(local("Истекло время ожидания. Откройте журнал окружения; фоновые процессы Wine можно остановить кнопкой «Остановить».", "The operation timed out. Open the environment log; use Stop to stop its background Wine processes.").into());
         }
         std::thread::sleep(Duration::from_millis(40));
     }
@@ -244,33 +270,37 @@ fn probe(store: &Store, e: &Engine) -> Result<String> {
     let mut c = runtime_command(e, &e.wine)?;
     c.arg("--version").stdout(file.try_clone().map_err(|e| e.to_string())?).stderr(file);
     let result = (|| {
-        let mut child = c.spawn().map_err(|e| format!("Не удалось запустить Wine: {e}"))?;
+        let mut child = c.spawn().map_err(|e| local(format!("Не удалось запустить Wine: {e}"), format!("Could not start Wine: {e}")))?;
         let status = wait_bounded(&mut child, Duration::from_secs(15))?;
         let text = fs::read_to_string(&output).map_err(|e| e.to_string())?;
         if !status.success() {
-            let hint = if e.architecture == "arm64" { "Проверьте требования движка к macOS и его подпись." } else { "Для сборок x86_64 на Apple Silicon нужна Rosetta." };
-            return Err(format!("Wine не запускается: {text}. {hint}"));
+            let hint = if e.architecture == "arm64" { local("Проверьте требования движка к macOS и его подпись.", "Check the engine's macOS requirements and code signature.") } else { local("Для сборок x86_64 на Apple Silicon нужна Rosetta.", "x86_64 builds require Rosetta on Apple Silicon.") };
+            return Err(local(format!("Wine не запускается: {text}. {hint}"), format!("Wine could not start: {text}. {hint}")));
         }
-        let version = text.lines().find(|l| l.to_lowercase().contains("wine-")).ok_or_else(|| format!("Не удалось определить версию Wine: {text}"))?;
+        let version = text.lines().find(|l| l.to_lowercase().contains("wine-")).ok_or_else(|| local(format!("Не удалось определить версию Wine: {text}"), format!("Could not determine the Wine version: {text}")))?;
         Ok(version.trim().to_string())
     })();
     let _ = fs::remove_file(output);
     result
 }
 fn launch(store: &Store, b: &Bottle, e: &Engine, args: &[String], directory: Option<&str>, label: &str) -> Result<Value> {
-    if b.status != "ready" { return Err("Окружение не готово. Повторите инициализацию.".into()); }
-    if args.iter().any(|a| a.contains('\0')) { return Err("Аргумент содержит нулевой байт".into()); }
+    let _operation = store.operation_lock(&b.id)?;
+    let (current, _) = store.pair(&b.id)?;
+    let b = &current;
+    if b.status != "ready" { return Err(local("Окружение не готово. Повторите инициализацию.", "The environment is not ready. Retry initialization.").into()); }
+    if args.iter().any(|a| a.contains('\0')) { return Err(local("Аргумент содержит нулевой байт", "An argument contains a null byte").into()); }
     let (path, log) = store.log(b, label)?;
     let mut c = wine_command(store, b, e)?;
     c.args(args).stdout(log.try_clone().map_err(|e| e.to_string())?).stderr(log);
     let cwd = directory.map(PathBuf::from).unwrap_or(store.prefix(&b.id)?.join("drive_c"));
-    if !cwd.is_absolute() || !cwd.is_dir() { return Err("Рабочая папка не найдена".into()); }
+    if !cwd.is_absolute() || !cwd.is_dir() { return Err(local("Рабочая папка не найдена", "Working folder not found").into()); }
     c.current_dir(cwd);
     // Wine owns the Windows process tree. Closing this CLI must not close the app.
-    let child = c.spawn().map_err(|e| format!("Не удалось запустить: {e}"))?;
-    Ok(json!({"pid": child.id(), "log": path, "message": "Запуск передан Wine. Результат запуска смотрите в журнале."}))
+    let child = c.spawn().map_err(|e| local(format!("Не удалось запустить: {e}"), format!("Could not launch: {e}")))?;
+    Ok(json!({"pid": child.id(), "log": path, "message": local("Запуск передан Wine. Результат запуска смотрите в журнале.", "Launch request sent to Wine. Check the log for the result.")}))
 }
 fn initialize(store: &Store, id: &str) -> Result<Value> {
+    let _operation = store.operation_lock(id)?;
     let (b, e) = store.pair(id)?;
     let result = (|| {
         let (path, file) = store.log(&b, "wineboot --init")?;
@@ -284,14 +314,14 @@ fn initialize(store: &Store, id: &str) -> Result<Value> {
         c.args(["wineboot", "--init"]).stdout(file.try_clone().map_err(|e| e.to_string())?).stderr(file);
         let mut child = c.spawn().map_err(|e| e.to_string())?;
         let status = wait_bounded(&mut child, Duration::from_secs(120))?;
-        if !status.success() { return Err(format!("Wine завершил настройку с ошибкой ({status}). Журнал: {}", path.display())); }
+        if !status.success() { return Err(local(format!("Wine завершил настройку с ошибкой ({status}). Журнал: {}", path.display()), format!("Wine initialization failed ({status}). Log: {}", path.display()))); }
         // wineserver saves registry files asynchronously after wineboot exits.
         let registry = store.prefix(id)?.join("system.reg");
         let started = Instant::now();
         while !registry.exists() && started.elapsed() < Duration::from_secs(20) {
             std::thread::sleep(Duration::from_millis(100));
         }
-        if !registry.exists() { return Err(format!("Wine ещё не сохранил реестр окружения. Повторите инициализацию. Журнал: {}", path.display())); }
+        if !registry.exists() { return Err(local(format!("Wine ещё не сохранил реестр окружения. Повторите инициализацию. Журнал: {}", path.display()), format!("Wine has not saved the environment registry yet. Retry initialization. Log: {}", path.display()))); }
         if let Some(dpi) = b.dpi { apply_dpi(store, &b, &e, dpi)?; }
         Ok(json!({"id":id, "log":path}))
     })();
@@ -299,20 +329,20 @@ fn initialize(store: &Store, id: &str) -> Result<Value> {
     result
 }
 fn validate_dpi(dpi: u32) -> Result<()> {
-    if ![96, 120, 144, 168, 192, 240, 288].contains(&dpi) { return Err("Выберите масштаб от 100% до 300% из списка".into()); }
+    if ![96, 120, 144, 168, 192, 240, 288].contains(&dpi) { return Err(local("Выберите масштаб от 100% до 300% из списка", "Choose a scale between 100% and 300% from the list").into()); }
     Ok(())
 }
 fn apply_dpi(store: &Store, b: &Bottle, e: &Engine, dpi: u32) -> Result<Value> {
     validate_dpi(dpi)?;
-    let (path, file) = store.log(b, "Масштаб Windows")?;
+    let (path, file) = store.log(b, local("Масштаб Windows", "Windows scale"))?;
     let mut c = wine_command(store, b, e)?;
     c.args(["reg.exe", "add", "HKCU\\Control Panel\\Desktop", "/v", "LogPixels", "/t", "REG_DWORD", "/d", &dpi.to_string(), "/f"])
         .stdout(file.try_clone().map_err(|e| e.to_string())?).stderr(file);
     let mut child = c.spawn().map_err(|e| e.to_string())?;
     let status = wait_bounded(&mut child, Duration::from_secs(20))?;
-    if !status.success() { return Err(format!("Не удалось изменить масштаб Windows. Журнал: {}", path.display())); }
+    if !status.success() { return Err(local(format!("Не удалось изменить масштаб Windows. Журнал: {}", path.display()), format!("Could not change Windows scale. Log: {}", path.display()))); }
     store.update(|s| { bottle_mut(s, &b.id)?.dpi = Some(dpi); Ok(()) })?;
-    Ok(json!({"dpi":dpi, "message":"Масштаб сохранён. Перезапустите Windows-программы, чтобы применить его."}))
+    Ok(json!({"dpi":dpi, "message":local("Масштаб сохранён. Перезапустите Windows-программы, чтобы применить его.", "Scale saved. Restart Windows applications to apply it.")}))
 }
 fn dispatch(store: &Store, r: Request) -> Result<Value> {
     match r.op.as_str() {
@@ -320,6 +350,9 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
         "catalog" => Ok(json!({"launchers": launcher::catalog()?})),
         "install_launcher" => launcher::install(store, &r),
         "retry_launcher" => launcher::retry(store, &r.id),
+        "delete_environment" => removal::trash(store, &r.id),
+        "restore_environment" => removal::restore(store, &r.id),
+        "purge_environment" => removal::purge(store, &r.id),
         "add_engine" => {
             let location = engine::locate(&r.path)?;
             let mut e = Engine { id: uid(), name: String::new(), wine: location.wine.to_string_lossy().into_owned(), version: String::new(),
@@ -328,7 +361,7 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
             let name = if r.name.trim().is_empty() { version.clone() } else { clean_name(&r.name)? };
             e.name = name; e.version = version;
             store.update(|s| {
-                if s.engines.iter().any(|x| x.wine == e.wine) { return Err("Этот движок уже добавлен".into()); }
+                if s.engines.iter().any(|x| x.wine == e.wine) { return Err(local("Этот движок уже добавлен", "This engine is already registered").into()); }
                 s.engines.push(e.clone()); Ok(())
             })?;
             Ok(json!(e))
@@ -338,7 +371,7 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
             if let Some(dpi) = r.dpi { validate_dpi(dpi)?; }
             let b = Bottle { id: uid(), name, engine_id: r.engine_id, status: "initializing".into(), environment: BTreeMap::new(), shortcuts: vec![], last_log: None, dpi:r.dpi, installation:None };
             store.update(|s| {
-                if !s.engines.iter().any(|e| e.id == b.engine_id) { return Err("Сначала добавьте движок Wine".into()); }
+                if !s.engines.iter().any(|e| e.id == b.engine_id) { return Err(local("Сначала добавьте движок Wine", "Add a Wine engine first").into()); }
                 fs::create_dir(store.prefix(&b.id)?).map_err(|e| e.to_string())?;
                 s.bottles.push(b.clone()); Ok(())
             })?;
@@ -346,13 +379,14 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
         }
         "initialize" => {
             let (b, _) = store.pair(&r.id)?;
-            if b.status == "ready" { return Err("Окружение уже готово".into()); }
+            if b.status == "ready" { return Err(local("Окружение уже готово", "The environment is already ready").into()); }
             initialize(store, &r.id)
         }
         "set_dpi" => {
+            let _operation = store.operation_lock(&r.id)?;
             let (b, e) = store.pair(&r.id)?;
-            if b.status != "ready" { return Err("Сначала завершите создание окружения".into()); }
-            apply_dpi(store, &b, &e, r.dpi.ok_or("Выберите масштаб Windows")?)
+            if b.status != "ready" { return Err(local("Сначала завершите создание окружения", "Finish creating the environment first").into()); }
+            apply_dpi(store, &b, &e, r.dpi.ok_or(local("Выберите масштаб Windows", "Choose a Windows scale"))?)
         }
         "save_settings" => {
             let name = clean_name(&r.name)?;
@@ -364,8 +398,8 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
             let name = clean_name(&r.name)?;
             let file = absolute_file(&r.path)?;
             let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-            if !["exe", "msi", "bat", "cmd"].contains(&ext.as_str()) { return Err("Выберите EXE, MSI, BAT или CMD".into()); }
-            if let Some(dir) = &r.directory { if !Path::new(dir).is_absolute() || !Path::new(dir).is_dir() { return Err("Рабочая папка не найдена".into()); } }
+            if !["exe", "msi", "bat", "cmd"].contains(&ext.as_str()) { return Err(local("Выберите EXE, MSI, BAT или CMD", "Choose an EXE, MSI, BAT, or CMD file").into()); }
+            if let Some(dir) = &r.directory { if !Path::new(dir).is_absolute() || !Path::new(dir).is_dir() { return Err(local("Рабочая папка не найдена", "Working folder not found").into()); } }
             let shortcut = Shortcut { id: uid(), name, executable: file.to_string_lossy().into_owned(), arguments: r.arguments, directory: r.directory };
             store.update(|s| { bottle_mut(s, &r.id)?.shortcuts.push(shortcut.clone()); Ok(()) })?;
             Ok(json!(shortcut))
@@ -374,12 +408,12 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
         "launch" | "run_shortcut" => {
             let (b, e) = store.pair(&r.id)?;
             let (file, arguments, directory) = if r.op == "run_shortcut" {
-                let shortcut = b.shortcuts.iter().find(|s| s.id == r.shortcut_id).ok_or("Ярлык не найден")?;
+                let shortcut = b.shortcuts.iter().find(|s| s.id == r.shortcut_id).ok_or(local("Ярлык не найден", "Shortcut not found"))?;
                 (shortcut.executable.clone(), shortcut.arguments.clone(), shortcut.directory.clone())
             } else { (r.path, r.arguments, r.directory) };
             let path = absolute_file(&file)?;
             if e.supports_x86_32 == Some(false) && engine::pe_machine(&path) == Some(0x014c) {
-                return Err("Это 32-битная Windows-программа. Этот нативный движок поддерживает только 64-битные программы. Выберите 64-битную версию программы; для нативного запуска 32-битных программ нужна отдельная сборка с разрешением Apple.".into());
+                return Err(local("Это 32-битная Windows-программа. Этот нативный движок поддерживает только 64-битные программы. Выберите 64-битную версию программы; для нативного запуска 32-битных программ нужна отдельная сборка с разрешением Apple.", "This is a 32-bit Windows application. This native engine supports 64-bit programs only. Choose a 64-bit application; native 32-bit support requires a separate runtime with Apple's permission.").into());
             }
             let args = executable_args(&path, &arguments)?;
             let cwd = directory.or_else(|| path.parent().map(|p| p.to_string_lossy().into_owned()));
@@ -392,35 +426,19 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
                 "regedit" => vec!["regedit".into()],
                 "uninstaller" => vec!["uninstaller".into()],
                 "cmd" => vec!["wineconsole".into(), "cmd".into()],
-                _ => return Err("Неизвестный инструмент Wine".into()),
+                _ => return Err(local("Неизвестный инструмент Wine", "Unknown Wine tool").into()),
             };
             launch(store, &b, &e, &args, None, &r.tool)
         }
         "stop" => {
             let (b, e) = store.pair(&r.id)?;
-            let server = if e.server.is_empty() { Path::new(&e.wine).parent().ok_or("Не найдена папка Wine")?.join("wineserver") } else { PathBuf::from(&e.server) };
-            let (path, log) = store.log(&b, "wineserver -k")?;
-            let output_start = log.metadata().map_err(|e| e.to_string())?.len();
-            let mut c = wine_command(store, &b, &e)?;
-            let env: Vec<_> = c.get_envs().map(|(k, v)| (k.to_owned(), v.map(|s| s.to_owned()))).collect();
-            c = runtime_command(&e, &server.to_string_lossy())?;
-            for (key, value) in env { if let Some(v) = value { c.env(key, v); } else { c.env_remove(key); } }
-            let mut child = c.arg("-k").stdin(Stdio::null()).stdout(log.try_clone().map_err(|e| e.to_string())?).stderr(log).spawn().map_err(|e| e.to_string())?;
-            let status = wait_bounded(&mut child, Duration::from_secs(15))?;
-            if status.code() == Some(1) {
-                let mut file = File::open(&path).map_err(|e| e.to_string())?;
-                file.seek(SeekFrom::Start(output_start)).map_err(|e| e.to_string())?;
-                let mut body = Vec::new(); file.take(16384).read_to_end(&mut body).map_err(|e| e.to_string())?;
-                // Upstream wineserver returns 1, without output, when no server owns the prefix.
-                if body.is_empty() { return Ok(json!({"message":"Окружение уже остановлено"})); }
-            }
-            if !status.success() { return Err(format!("Не удалось остановить Wine. Журнал: {}", path.display())); }
-            Ok(json!({"message":"Команда остановки отправлена только этому окружению"}))
+            let _operation = store.operation_lock(&r.id)?;
+            stop_environment(store, &b, &e)
         }
         "read_log" => {
             let (b, _) = store.pair(&r.id)?;
-            let Some(name) = b.last_log else { return Ok(json!({"text":"Журнал появится после первого запуска."})); };
-            if Path::new(&name).components().count() != 1 || !name.ends_with(".log") { return Err("Некорректный путь журнала".into()); }
+            let Some(name) = b.last_log else { return Ok(json!({"text":local("Журнал появится после первого запуска.", "A log will appear after the first launch.")})); };
+            if Path::new(&name).components().count() != 1 || !name.ends_with(".log") { return Err(local("Некорректный путь журнала", "Invalid log path").into()); }
             let path = store.root.join("logs").join(name);
             let mut f = File::open(&path).map_err(|e| e.to_string())?;
             let len = f.metadata().map_err(|e| e.to_string())?.len();
@@ -428,8 +446,28 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
             let mut data = vec![]; f.take(128 * 1024).read_to_end(&mut data).map_err(|e| e.to_string())?;
             Ok(json!({"text":String::from_utf8_lossy(&data), "path":path}))
         }
-        _ => Err("Неизвестная операция".into()),
+        _ => Err(local("Неизвестная операция", "Unknown operation").into()),
     }
+}
+fn stop_environment(store: &Store, b: &Bottle, e: &Engine) -> Result<Value> {
+    let server = if e.server.is_empty() { Path::new(&e.wine).parent().ok_or(local("Не найдена папка Wine", "Wine folder not found"))?.join("wineserver") } else { PathBuf::from(&e.server) };
+    let (path, log) = store.log(&b, "wineserver -k")?;
+    let output_start = log.metadata().map_err(|e| e.to_string())?.len();
+    let mut c = wine_command(store, &b, &e)?;
+    let env: Vec<_> = c.get_envs().map(|(k, v)| (k.to_owned(), v.map(|s| s.to_owned()))).collect();
+    c = runtime_command(&e, &server.to_string_lossy())?;
+    for (key, value) in env { if let Some(v) = value { c.env(key, v); } else { c.env_remove(key); } }
+    let mut child = c.arg("-k").stdin(Stdio::null()).stdout(log.try_clone().map_err(|e| e.to_string())?).stderr(log).spawn().map_err(|e| e.to_string())?;
+    let status = wait_bounded(&mut child, Duration::from_secs(15))?;
+    if status.code() == Some(1) {
+        let mut file = File::open(&path).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(output_start)).map_err(|e| e.to_string())?;
+        let mut body = Vec::new(); file.take(16384).read_to_end(&mut body).map_err(|e| e.to_string())?;
+        // Upstream wineserver returns 1, without output, when no server owns the prefix.
+        if body.is_empty() { return Ok(json!({"message":local("Окружение уже остановлено", "The environment is already stopped")})); }
+    }
+    if !status.success() { return Err(local(format!("Не удалось остановить Wine. Журнал: {}", path.display()), format!("Could not stop Wine. Log: {}", path.display()))); }
+    Ok(json!({"message":local("Команда остановки отправлена только этому окружению", "Stop request sent only to this environment")}))
 }
 fn executable_args(path: &Path, arguments: &[String]) -> Result<Vec<String>> {
     let file = path.to_string_lossy().into_owned();
@@ -438,7 +476,7 @@ fn executable_args(path: &Path, arguments: &[String]) -> Result<Vec<String>> {
         "exe" => vec![file],
         "msi" => vec!["msiexec".into(), "/i".into(), file],
         "bat" | "cmd" => vec!["cmd".into(), "/c".into(), file],
-        _ => return Err("Поддерживаются EXE, MSI, BAT и CMD".into()),
+        _ => return Err(local("Поддерживаются EXE, MSI, BAT и CMD", "EXE, MSI, BAT, and CMD files are supported").into()),
     };
     args.extend_from_slice(arguments); Ok(args)
 }
@@ -446,8 +484,8 @@ fn main() {
     let result = (|| {
         let mut input = String::new();
         std::io::stdin().lock().take(4 * 1024 * 1024).read_line(&mut input).map_err(|e| e.to_string())?;
-        let r: Request = serde_json::from_str(&input).map_err(|e| format!("Некорректный запрос: {e}"))?;
-        let root = std::env::var_os("VELA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join("Library/Application Support/Vela"))).ok_or("Не задан путь данных")?;
+        let r: Request = serde_json::from_str(&input).map_err(|e| local(format!("Некорректный запрос: {e}"), format!("Invalid request: {e}")))?;
+        let root = std::env::var_os("VELA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join("Library/Application Support/Vela"))).ok_or(local("Не задан путь данных", "No data folder was specified"))?;
         dispatch(&Store::new(root)?, r)
     })();
     match result {

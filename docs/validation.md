@@ -1,10 +1,10 @@
-# Vela 0.3.0 validation
+# Vela 0.4.0 validation
 
-Recorded on October 23, 2026, using an Apple M1 Mac running macOS 26.5.2. The current preview is app build 5.
+Recorded on October 23, 2026, using an Apple M1 Mac running macOS 26.5.2. The current preview is app build 6.
 
 ## Manager and interface
 
-- Fifteen Rust unit tests and one JSON protocol integration test passed.
+- Eighteen Rust unit tests and two JSON protocol integration tests passed.
 - Coverage includes path validation, literal launch arguments, environment-variable isolation, state preservation, concurrent writes, engine lifecycle, Mach-O/PE headers, and loader symlink handling.
 - DPI handling was checked for registry command arguments, saved state, and invalid-scale rejection.
 - The SwiftUI interface built in Swift 6 mode.
@@ -12,6 +12,14 @@ Recorded on October 23, 2026, using an Apple M1 Mac running macOS 26.5.2. The cu
 - App icon display was checked in the standard About window.
 - Sidebar shortcut-menu spacing and opening were inspected.
 - Both support entry points opened the support sheet; its action opened the configured Boosty donation page in a browser. No payment was performed.
+
+## Environment deletion and localization
+
+- Unit checks cover recoverable deletion, restore with settings/data intact, per-environment exclusion, failed stop, ID/path validation, and permanent deletion that preserves other environments, Wine engines, and external symlink targets.
+- A separate native Wine test created a disposable environment, stopped and soft-deleted it, restored saved data, then permanently removed it without changing an external sentinel file.
+- Protocol checks verify English/Russian core errors without changing process-global test language settings.
+- A Swift check validates device-language matching, explicit overrides, fallback, identical resource keys, and format argument parity across 212 interface strings.
+- The native interface was checked for a system-language default, immediate English switching, translated catalog/settings, the settings delete button, the sidebar context menu, and deletion confirmation/cancellation. Existing user environments were not deleted during UI checks. English persisted after restarting the app; the preference was then restored to System default.
 
 ## Launcher catalog
 
@@ -64,3 +72,12 @@ bash scripts/build.sh
 ~~~
 
 Wine integration checks need a separately installed engine and a new test library. See [CONTRIBUTING.md](../CONTRIBUTING.md) before running them.
+
+To check localization resources:
+
+~~~sh
+swiftc -parse-as-library -swift-version 6 macos/Localization.swift tests/LanguageSelectionTests.swift -o /tmp/vela-language-check
+/tmp/vela-language-check macos/Resources
+~~~
+
+`scripts/environment_removal_smoke.py` exercises stop, trash, restore, and purge with a separately installed engine and a **new disposable** `--home`. Never point it at an existing library.

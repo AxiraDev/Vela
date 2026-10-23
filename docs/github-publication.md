@@ -40,7 +40,7 @@ Upload the contents of the project directory, so README.md, core/, macos/, and .
 
 The prepared files include the English README, contributor guide, security policy, changelog, technical docs, issue forms, pull request template, and a Boosty funding configuration. The Russian README and earlier Russian technical notes are retained as additional documentation.
 
-The application interface itself is still in Russian.
+The application interface supports English and Russian, with the device language selected by default.
 
 ## Create the initial Git history
 
@@ -50,7 +50,7 @@ From the project root:
 git init -b main
 git add .cargo .github .gitattributes .gitignore LICENSE README.md README.ru.md THIRD_PARTY.md CONTRIBUTING.md SECURITY.md CHANGELOG.md Portable.example core docs macos runtime scripts tests vendor
 git diff --cached --stat
-git commit -m "Prepare Vela 0.3.0 preview"
+git commit -m "Prepare Vela 0.4.0 preview"
 ~~~
 
 Review the staged files before committing. Generated apps, engines, libraries, and build output are excluded by .gitignore.
@@ -79,10 +79,10 @@ From the project root:
 ~~~sh
 cargo test --locked --offline --manifest-path core/Cargo.toml
 bash scripts/build.sh
-cp build/Vela-preview.zip build/Vela-0.3.0-preview.zip
-python3 scripts/package_source.py --out build/Vela-0.3.0-source.zip
+cp build/Vela-preview.zip build/Vela-0.4.0-preview.zip
+python3 scripts/package_source.py --out build/Vela-0.4.0-source.zip
 cd build
-shasum -a 256 Vela-0.3.0-preview.zip Vela-0.3.0-source.zip > SHA256SUMS
+shasum -a 256 Vela-0.4.0-preview.zip Vela-0.4.0-source.zip > SHA256SUMS
 cd ..
 ~~~
 
@@ -92,11 +92,11 @@ For the prepared release, use:
 
 | Field | Value |
 | --- | --- |
-| Tag | `v0.3.0-preview.1` |
-| Title | `Vela 0.3.0 Preview` |
+| Tag | `v0.4.0-preview.1` |
+| Title | `Vela 0.4.0 Preview` |
 | Status | Pre-release |
-| App version / build | `0.3.0 / 5` |
-| Release body | Contents of `docs/releases/v0.3.0-preview.1.md` |
+| App version / build | `0.4.0 / 6` |
+| Release body | Contents of `docs/releases/v0.4.0-preview.1.md` |
 
 Create the tag against the commit whose source produced the uploaded app. Attach the app ZIP, the prepared source ZIP, and SHA256SUMS.
 
@@ -106,7 +106,7 @@ The explicit source ZIP includes vendored Rust dependencies. Wine engines and us
 
 Vela is an open-source Wine manager for macOS, built with SwiftUI and Rust. The preview includes a game launcher catalog with official downloads, automatic environment creation, and shortcut detection, alongside manual Wine engine and environment controls.
 
-The preview is available for Apple Silicon. A compatible Wine engine is required separately, and the current UI is in Russian. Feedback and contributions are welcome.
+The preview is available for Apple Silicon. A compatible Wine engine is required separately, and the UI supports English and Russian. Feedback and contributions are welcome.
 
 ## Support copy
 

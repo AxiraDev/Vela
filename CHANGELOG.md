@@ -2,6 +2,14 @@
 
 This file describes the prepared preview. Publication dates and future release entries will be added when releases are published.
 
+## 0.4.0 — Preview, build 6
+
+- Add environment deletion from settings and the sidebar context menu, with confirmation and a scoped Wine stop.
+- Add Vela Trash with restore and separately confirmed permanent deletion of prefix files, cached installers, and logs.
+- Prevent deletion and launch/initialization operations from racing through per-environment locks.
+- Add English and Russian interface resources, including catalog text, dialogs, progress, and core errors.
+- Follow device languages by default; offer persistent language overrides in App settings and the standard Settings window.
+
 ## 0.3.0 — Preview, build 5
 
 - Add a native game launcher catalog with ten official Windows installer presets.
