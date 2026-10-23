@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod engine;
 mod launcher;
 mod removal;
+mod engine_change;
 
 fn local<T>(ru: T, en: T) -> T {
     if std::env::var("VELA_LANGUAGE").as_deref() == Ok("en") { en } else { ru }
@@ -58,6 +59,10 @@ struct Bottle {
     dpi: Option<u32>,
     #[serde(default)]
     installation: Option<launcher::Installation>,
+    #[serde(default)]
+    engine_backup: Option<engine_change::Backup>,
+    #[serde(default)]
+    pending_engine: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -283,11 +288,14 @@ fn probe(store: &Store, e: &Engine) -> Result<String> {
     let _ = fs::remove_file(output);
     result
 }
-fn launch(store: &Store, b: &Bottle, e: &Engine, args: &[String], directory: Option<&str>, label: &str) -> Result<Value> {
+fn launch(store: &Store, b: &Bottle, args: &[String], directory: Option<&str>, label: &str) -> Result<Value> {
     let _operation = store.operation_lock(&b.id)?;
-    let (current, _) = store.pair(&b.id)?;
-    let b = &current;
+    let (current, current_engine) = store.pair(&b.id)?;
+    let (b, e) = (&current, &current_engine);
     if b.status != "ready" { return Err(local("Окружение не готово. Повторите инициализацию.", "The environment is not ready. Retry initialization.").into()); }
+    if e.supports_x86_32 == Some(false) && args.first().is_some_and(|p| engine::pe_machine(Path::new(p)) == Some(0x014c)) {
+        return Err(local("Это 32-битная программа. Выберите для окружения движок с поддержкой 32 бит.", "This is a 32-bit application. Choose an engine with 32-bit support for this environment.").into());
+    }
     if args.iter().any(|a| a.contains('\0')) { return Err(local("Аргумент содержит нулевой байт", "An argument contains a null byte").into()); }
     let (path, log) = store.log(b, label)?;
     let mut c = wine_command(store, b, e)?;
@@ -302,6 +310,7 @@ fn launch(store: &Store, b: &Bottle, e: &Engine, args: &[String], directory: Opt
 fn initialize(store: &Store, id: &str) -> Result<Value> {
     let _operation = store.operation_lock(id)?;
     let (b, e) = store.pair(id)?;
+    if b.pending_engine.is_some() { return Err(local("Сначала восстановите окружение после смены движка в его настройках.", "Restore the environment after the interrupted engine change in its settings first.").into()); }
     let result = (|| {
         let (path, file) = store.log(&b, "wineboot --init")?;
         let mut c = wine_command(store, &b, &e)?;
@@ -353,6 +362,8 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
         "delete_environment" => removal::trash(store, &r.id),
         "restore_environment" => removal::restore(store, &r.id),
         "purge_environment" => removal::purge(store, &r.id),
+        "change_engine" => engine_change::change(store, &r.id, &r.engine_id),
+        "restore_engine_backup" => engine_change::restore(store, &r.id),
         "add_engine" => {
             let location = engine::locate(&r.path)?;
             let mut e = Engine { id: uid(), name: String::new(), wine: location.wine.to_string_lossy().into_owned(), version: String::new(),
@@ -369,7 +380,7 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
         "create" => {
             let name = clean_name(&r.name)?;
             if let Some(dpi) = r.dpi { validate_dpi(dpi)?; }
-            let b = Bottle { id: uid(), name, engine_id: r.engine_id, status: "initializing".into(), environment: BTreeMap::new(), shortcuts: vec![], last_log: None, dpi:r.dpi, installation:None };
+            let b = Bottle { id: uid(), name, engine_id: r.engine_id, status: "initializing".into(), environment: BTreeMap::new(), shortcuts: vec![], last_log: None, dpi:r.dpi, installation:None, engine_backup:None, pending_engine:None };
             store.update(|s| {
                 if !s.engines.iter().any(|e| e.id == b.engine_id) { return Err(local("Сначала добавьте движок Wine", "Add a Wine engine first").into()); }
                 fs::create_dir(store.prefix(&b.id)?).map_err(|e| e.to_string())?;
@@ -389,12 +400,16 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
             apply_dpi(store, &b, &e, r.dpi.ok_or(local("Выберите масштаб Windows", "Choose a Windows scale"))?)
         }
         "save_settings" => {
+            let _operation = store.operation_lock(&r.id)?;
+            engine_change::ensure_idle(&store.pair(&r.id)?.0)?;
             let name = clean_name(&r.name)?;
             valid_environment(&r.environment)?;
             store.update(|s| { let b = bottle_mut(s, &r.id)?; b.name = name; b.environment = r.environment; Ok(()) })?;
             Ok(json!({}))
         }
         "add_shortcut" => {
+            let _operation = store.operation_lock(&r.id)?;
+            engine_change::ensure_idle(&store.pair(&r.id)?.0)?;
             let name = clean_name(&r.name)?;
             let file = absolute_file(&r.path)?;
             let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -404,23 +419,24 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
             store.update(|s| { bottle_mut(s, &r.id)?.shortcuts.push(shortcut.clone()); Ok(()) })?;
             Ok(json!(shortcut))
         }
-        "remove_shortcut" => { store.update(|s| { bottle_mut(s, &r.id)?.shortcuts.retain(|s| s.id != r.shortcut_id); Ok(()) })?; Ok(json!({})) }
+        "remove_shortcut" => {
+            let _operation = store.operation_lock(&r.id)?;
+            engine_change::ensure_idle(&store.pair(&r.id)?.0)?;
+            store.update(|s| { bottle_mut(s, &r.id)?.shortcuts.retain(|s| s.id != r.shortcut_id); Ok(()) })?; Ok(json!({}))
+        }
         "launch" | "run_shortcut" => {
-            let (b, e) = store.pair(&r.id)?;
+            let (b, _) = store.pair(&r.id)?;
             let (file, arguments, directory) = if r.op == "run_shortcut" {
                 let shortcut = b.shortcuts.iter().find(|s| s.id == r.shortcut_id).ok_or(local("Ярлык не найден", "Shortcut not found"))?;
                 (shortcut.executable.clone(), shortcut.arguments.clone(), shortcut.directory.clone())
             } else { (r.path, r.arguments, r.directory) };
             let path = absolute_file(&file)?;
-            if e.supports_x86_32 == Some(false) && engine::pe_machine(&path) == Some(0x014c) {
-                return Err(local("Это 32-битная Windows-программа. Этот нативный движок поддерживает только 64-битные программы. Выберите 64-битную версию программы; для нативного запуска 32-битных программ нужна отдельная сборка с разрешением Apple.", "This is a 32-bit Windows application. This native engine supports 64-bit programs only. Choose a 64-bit application; native 32-bit support requires a separate runtime with Apple's permission.").into());
-            }
             let args = executable_args(&path, &arguments)?;
             let cwd = directory.or_else(|| path.parent().map(|p| p.to_string_lossy().into_owned()));
-            launch(store, &b, &e, &args, cwd.as_deref(), &file)
+            launch(store, &b, &args, cwd.as_deref(), &file)
         }
         "tool" => {
-            let (b, e) = store.pair(&r.id)?;
+            let (b, _) = store.pair(&r.id)?;
             let args: Vec<String> = match r.tool.as_str() {
                 "winecfg" => vec!["winecfg".into()],
                 "regedit" => vec!["regedit".into()],
@@ -428,12 +444,13 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
                 "cmd" => vec!["wineconsole".into(), "cmd".into()],
                 _ => return Err(local("Неизвестный инструмент Wine", "Unknown Wine tool").into()),
             };
-            launch(store, &b, &e, &args, None, &r.tool)
+            launch(store, &b, &args, None, &r.tool)
         }
         "stop" => {
-            let (b, e) = store.pair(&r.id)?;
             let _operation = store.operation_lock(&r.id)?;
-            stop_environment(store, &b, &e)
+            let (b, e) = store.pair(&r.id)?;
+            if b.pending_engine.is_some() { engine_change::stop_all(store, &b)?; Ok(json!({})) }
+            else { stop_environment(store, &b, &e) }
         }
         "read_log" => {
             let (b, _) = store.pair(&r.id)?;

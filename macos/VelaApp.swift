@@ -19,6 +19,8 @@ struct Bottle: Codable, Identifiable, Sendable {
     let last_log: String?
     let dpi: Int?
     let installation: LauncherInstallation?
+    let engine_backup: EngineBackup?
+    let pending_engine: String?
 }
 struct LauncherInstallation: Codable, Sendable {
     let launcher_id: String
@@ -72,9 +74,9 @@ struct Core: Sendable {
         var data = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
         data.append(0x0a)
         let operation = request["op"] as? String ?? ""
-        let timeout: Double = operation == "purge_environment" ? 600 :
+        let timeout: Double = ["change_engine", "restore_engine_backup"].contains(operation) ? 1800 : (operation == "purge_environment" ? 600 :
             (["create", "initialize", "install_launcher", "retry_launcher"].contains(operation) ? 180 :
-             (operation == "delete_environment" ? 60 : 30))
+             (operation == "delete_environment" ? 60 : 30)))
         let executable = executable, root = root, language = L10n.code
         return try await Task.detached(priority: .userInitiated) {
             let process = Process()
@@ -286,7 +288,7 @@ struct VelaApp: App {
                 Button(tr("О Vela")) {
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .applicationName: "Vela",
-                        .applicationVersion: "0.4.2 · Preview",
+                        .applicationVersion: "0.5.0 · Preview",
                         .credits: NSAttributedString(string: tr("Независимая открытая оболочка Wine\nSwiftUI + Rust · MIT\nWine и графические компоненты имеют собственные лицензии."))
                     ])
                 }
@@ -474,10 +476,10 @@ struct EnginesView: View {
                     Label(tr("Обновления под вашим контролем"), systemImage: "arrow.triangle.2.circlepath").font(.headline)
                     Text(tr("Добавляйте новые версии как отдельные движки. Существующие окружения продолжают использовать выбранную сборку. Автоматического скачивания и замены файлов в этой версии нет."))
                         .foregroundStyle(.secondary)
-                    Text(tr("Для смены движка создайте новое окружение. Это сохраняет рабочую конфигурацию.")).font(.caption).foregroundStyle(.secondary)
+                    Text(tr("Change an environment's engine in its settings. Vela creates a backup first.")).font(.caption).foregroundStyle(.secondary)
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
                 HStack {
-                    Text("Vela 0.4 · Preview · MIT").font(.caption).foregroundStyle(.tertiary)
+                    Text("Vela 0.5 · Preview · MIT").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
                     Button(tr("Папка данных")) { model.showFolder(model.core.root.path) }.buttonStyle(.link)
                 }
@@ -556,7 +558,7 @@ struct BottleView: View {
                     if let engine = model.engines.first(where: { $0.id == bottle.engine_id }) {
                         EngineSupportView(engine: engine)
                     }
-                    Text(bottle.status == "ready" ? tr("Окружение готово.") : tr("Инициализация не завершена"))
+                    Text(bottle.pending_engine != nil ? tr("Engine change needs recovery") : (bottle.status == "ready" ? tr("Окружение готово.") : tr("Инициализация не завершена")))
                         .font(.caption).foregroundStyle(bottle.status == "ready" ? .green : .orange)
                 }
                 Spacer()
@@ -586,11 +588,15 @@ struct BottleView: View {
                 HStack {
                     Label(tr("Откройте журнал, чтобы узнать причину сбоя."), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     Spacer()
-                    Button(tr("Повторить")) { model.perform(tr("Инициализируем Wine…"), request: ["op":"initialize", "id":bottle.id]) }.disabled(model.busy)
+                    if bottle.pending_engine != nil {
+                        Button(tr("Open recovery settings")) { tab = "settings" }.disabled(model.busy)
+                    } else {
+                        Button(tr("Повторить")) { model.perform(tr("Инициализируем Wine…"), request: ["op":"initialize", "id":bottle.id]) }.disabled(model.busy)
+                    }
                 }.font(.callout)
             }
             if tab == "library" { library }
-            else if tab == "settings" { BottleSettingsView(bottle: bottle) }
+            else if tab == "settings" { BottleSettingsView(bottle: bottle).id(bottle.id + bottle.engine_id + bottle.status) }
             else { LogView(bottle: bottle) }
         }.padding(32)
             .sheet(isPresented: $addingShortcut) { AddShortcutView(bottle: bottle) }
@@ -668,6 +674,8 @@ struct BottleSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                EnvironmentEngineSection(bottle: bottle)
+                Divider()
                 Text(tr("Общие")).font(.headline)
                 TextField(tr("Название окружения"), text: $name).textFieldStyle(.roundedBorder)
                 Text(tr("Размер интерфейса Windows")).font(.headline).padding(.top, 8)

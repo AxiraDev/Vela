@@ -12,7 +12,7 @@ Create separate Windows environments, connect your preferred Wine engines, and l
 
 ## Project status
 
-Vela 0.4.2 is an early preview for Apple Silicon. The interface supports English and Russian and follows your device languages by default. The primary project documentation is in English.
+Vela 0.5.0 is an early preview for Apple Silicon. The interface supports English and Russian and follows your device languages by default. The primary project documentation is in English.
 
 The app and source archives do **not** include a Wine engine. A compatible engine must be installed separately. Experimental ARM64/FEX support has been validated locally with a small x64 test program; compatibility with individual Windows applications varies.
 
@@ -22,6 +22,7 @@ The app and source archives do **not** include a Wine engine. A compatible engin
 - Delete environments with confirmation, restore them from Vela Trash, or permanently remove their files.
 - Choose English, Russian, or System default for the interface language.
 - Register multiple Wine engines and keep environments tied to a specific engine.
+- Change an environment's Wine engine without reinstalling its applications, with a pre-change backup and restore.
 - Create separate 64-bit Wine environments with their own Windows files and registry.
 - Launch EXE and MSI files; save shortcuts, arguments, and working directories.
 - Launch BAT and CMD files through the Windows command processor.
@@ -52,7 +53,7 @@ The current binary is built for Apple Silicon. An Intel build and an Intel Mac t
 
 ### Preview application
 
-1. Download `Vela-0.4.2-preview.zip` from the [Releases page](https://github.com/AxiraDev/Vela/releases).
+1. Download `Vela-0.5.0-preview.zip` from the [Releases page](https://github.com/AxiraDev/Vela/releases).
 2. Extract `Vela.app` and place it in a writable location.
 3. Open Vela and add a compatible Wine application bundle, runtime directory, or `wine` executable.
 4. Create an environment and wait for initialization to finish.
@@ -74,7 +75,19 @@ Intel WoW64 engines are marked **Fallback for 32-bit apps**. Keep one alongside 
 
 The experimental ARM64/FEX configuration is documented in [Native runtime notes](docs/native-runtime.md). Its binaries are not included in this release. Do not interpret the native engine support as an automatic engine installer.
 
-Adding an ARM64 engine does not convert existing Intel environments. Create a new environment for a different engine.
+Adding an engine does not automatically switch existing environments. Choose it in an environment's settings when you want to change that environment's engine.
+
+### Change an environment's engine
+
+Open the environment's **Settings** tab, click **Change Wine engine…**, select another registered engine, and click **Change engine**. Save your work first: Windows programs in this environment will close.
+
+Vela stops the current engine, copies the prefix and saved environment settings, runs `wineboot --update` with the selected engine, reapplies the saved Windows scale, and checks Windows command execution. The environment keeps its ID, installed programs, files, shortcuts, variables, and paths. This does not convert a pure 32-bit prefix into a 64-bit prefix or add 32-bit support to a 64-bit-only engine. Compatibility with every installed application still depends on the engine.
+
+If updating or checking the new engine fails, Vela attempts to restore the backup automatically. If an operation is interrupted, launching programs is blocked until **Restore before engine change…** completes. You can also use that button after a successful change to return the environment's files, registry, shortcuts, and saved settings to the previous state.
+
+Backups live under `engine-backups/<environment-id>/`. They include files inside the prefix; external files reached through Wine's host links are not copied. **Show engine backups** opens their folder. Copies remain until manually removed or the environment is permanently deleted. Restoring retains the replaced prefix in a `replaced-*` subfolder rather than deleting post-switch files. APFS cloning is used where available; backups still need free disk space as files change. Only the most recent pre-change backup is exposed by the restore button.
+
+Keep the old engine installed until you no longer need its backup. Older Vela versions do not preserve engine-change recovery metadata; do not open a library with an interrupted change in an older version.
 
 ### Install a game launcher
 
@@ -90,7 +103,7 @@ If a download address changes, use **Выбрать скачанный файл�
 
 Open the environment's **Settings** tab and click **Delete environment…**, or right-click it in the sidebar. Vela stops that environment's Windows programs and moves its library entry to **Vela Trash**. Unsaved application changes may be lost.
 
-Open Vela Trash to restore it with its files, shortcuts, and settings, or choose **Delete permanently…** to free disk space. Permanent deletion removes that environment's prefix, cached installers, and operation logs. Wine engines and files outside the environment are kept. Soft deletion keeps files in their original location until permanent deletion; it is separate from the macOS Trash.
+Open Vela Trash to restore it with its files, shortcuts, and settings, or choose **Delete permanently…** to free disk space. Permanent deletion removes that environment's prefix, engine-change backups, cached installers, and operation logs. Wine engines and files outside the environment are kept. Soft deletion keeps files in their original location until permanent deletion; it is separate from the macOS Trash.
 
 ### Interface language
 
@@ -117,6 +130,7 @@ The default library location is:
 ├── state.json
 ├── prefixes/
 ├── installers/
+├── engine-backups/
 └── logs/
 ~~~
 
@@ -132,18 +146,18 @@ Engine and shortcut paths are absolute. Relocating an engine or library is not a
 
 ## Updates
 
-Vela 0.4 does not download or replace Wine engines automatically. Catalog links ship with the app; changing a link requires an app update. Installed launchers download their own client and game updates inside their environments.
+Vela 0.5 does not download or replace Wine engines automatically. Catalog links ship with the app; changing a link requires an app update. Installed launchers download their own client and game updates inside their environments.
 
-Install engine versions in separate directories. Keep an existing environment on its current engine, and use a new environment to test another version. Replacing Wine files in place can break an otherwise working environment.
+Install engine versions in separate directories, then use the environment's settings to switch between them with a backup. Replacing Wine files in place can break an otherwise working environment and bypasses Vela's pre-change backup.
 
-The app, Wine, CPU translation components, and graphics libraries have separate release cycles. Signed update manifests, environment snapshots, and engine migration are planned rather than implemented.
+The app, Wine, CPU translation components, and graphics libraries have separate release cycles. Engine switching with a backup is available; signed update manifests and general-purpose snapshot management are planned.
 
 ## Current limitations
 
 - The experimental native runtime supports 64-bit Windows applications only. Vela rejects recognizable i386 PE executables when the engine declares that limitation. Installers can contain unsupported 32-bit child programs.
 - The preview does not install or manage DXMT, DXVK, MoltenVK, DirectX packages, or multimedia backends.
 - Application compatibility, gaming features, and anti-cheat support are not guaranteed.
-- There is no Winetricks integration, automatic engine download, environment migration, or environment snapshots.
+- There is no Winetricks integration, automatic engine download, or general-purpose snapshot browser. Engine-change backups and restore are available.
 - Existing shortcuts must be removed and added again to change their settings.
 - Process-tree status and application exit results are not tracked live. A launch notification means that the request was handed to Wine.
 - Logs are not rotated automatically.
@@ -166,7 +180,7 @@ Rust dependencies and their license notices are included in `vendor/`. No third-
 To create a source archive:
 
 ~~~sh
-python3 scripts/package_source.py --out build/Vela-0.4.2-source.zip
+python3 scripts/package_source.py --out build/Vela-0.5.0-source.zip
 ~~~
 
 Wine binaries, user libraries, generated apps, and build directories are excluded.

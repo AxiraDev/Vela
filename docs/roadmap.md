@@ -5,7 +5,7 @@ These are intended directions, not shipping features or delivery commitments.
 ## Reliable environment management
 
 - Track application startup, process trees, and exit results.
-- Add stopped-environment snapshots and restore.
+- Expand the existing engine-change backups into a general-purpose snapshot browser.
 - Edit existing shortcuts and discover installed applications.
 - Rotate logs and improve recovery after interrupted initialization or a stale lock.
 - Improve library relocation and portable-mode path handling.
@@ -16,7 +16,7 @@ These are intended directions, not shipping features or delivery commitments.
 - Publish exact source inputs, patches, component notices, and build metadata.
 - Verify signed release manifests and downloaded archives.
 - Keep engine versions side by side.
-- Validate engine changes against snapshots before offering rollback.
+- Expand engine-change validation beyond the current Wine update and Windows command checks.
 - Expand the macOS and hardware validation matrix.
 
 ## Application setup

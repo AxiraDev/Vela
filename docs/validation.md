@@ -1,10 +1,10 @@
-# Vela 0.4.1 validation
+# Vela 0.5.0 validation
 
-Recorded on October 23, 2026, using an Apple M1 Mac running macOS 26.5.2. The current preview is app build 7.
+Recorded on October 23, 2026, using an Apple M1 Mac running macOS 26.5.2. The current preview is app build 9.
 
 ## Manager and interface
 
-- Nineteen Rust unit tests and two JSON protocol integration tests passed.
+- Twenty-four Rust unit tests and two JSON protocol integration tests passed.
 - Coverage includes path validation, literal launch arguments, environment-variable isolation, state preservation, concurrent writes, engine lifecycle, Mach-O/PE headers, and loader symlink handling.
 - DPI handling was checked for registry command arguments, saved state, and invalid-scale rejection.
 - The SwiftUI interface built in Swift 6 mode.
@@ -12,6 +12,15 @@ Recorded on October 23, 2026, using an Apple M1 Mac running macOS 26.5.2. The cu
 - App icon display was checked in the standard About window.
 - Sidebar shortcut-menu spacing and opening were inspected.
 - Both support entry points opened the support sheet; its action opened the configured Boosty donation page in a browser. No payment was performed.
+
+## Engine changes and restore
+
+- Unit checks cover retained prefix data and metadata, symlink preservation, automatic rollback after a failed update, busy/invalid requests, failed server stop, backup path containment, interrupted recovery between renames, and launch revalidation after switching engines.
+- Permanent environment deletion also removes its engine backups while preserving external symlink targets.
+- A fresh disposable library was created with the installed Intel Wine 11.18 engine. The same environment switched to ARM64/FEX, back to Intel, and then restored its pre-change native backup.
+- An original external x64 PE program continued to run through its original shortcut after both changes and after restore. The restored Intel path also executed 32-bit `syswow64/cmd.exe`.
+- Environment ID, prefix/shortcut paths, saved application data, custom variables, and the 192-DPI registry value were preserved. Restore returned saved state and retained post-switch data in a `replaced-*` folder. Only the disposable test environment was stopped.
+- The native interface's settings button, engine selection, 32-bit limitation notice, and confirmation cancellation were checked without switching a user's working environment.
 
 ## Engine selection and bitness
 

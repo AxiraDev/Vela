@@ -52,7 +52,7 @@ struct TrashView: View {
             }
             Button(tr("Отмена"), role: .cancel) {}
         } message: { bottle in
-            Text(trf("“%@” and all its Windows applications, files, saved data, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept.", bottle.name))
+            Text(trf("“%@” and all its Windows applications, files, saved data, engine backups, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept.", bottle.name))
         }
     }
 }

@@ -2,6 +2,15 @@
 
 Changes in published and prepared preview builds.
 
+## 0.5.0 — Preview, build 9
+
+- Change an existing environment's Wine engine from settings while preserving its installed programs, files, ID, shortcuts, variables, and scale.
+- Stop the selected environment and create a prefix/metadata backup before running Wine's update and execution checks.
+- Attempt automatic rollback on update failure; provide manual restore and recovery after an interrupted change.
+- Retain replaced prefix files during restore and remove environment-owned backups only on explicit permanent environment deletion or manual cleanup.
+- Re-read engine selection under per-environment locks for launch and stop, and serialize settings/shortcut changes with engine changes.
+- Add English and Russian engine-change controls and compatibility guidance.
+
 ## 0.4.2 — Preview, build 8
 
 - Mark Intel WoW64 engines as a fallback for 32-bit applications in the library, engine selection, and environment header.

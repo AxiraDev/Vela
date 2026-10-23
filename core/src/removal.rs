@@ -2,10 +2,9 @@ use super::*;
 
 pub(crate) fn trash(store: &Store, id: &str) -> Result<Value> {
     let _operation = store.operation_lock(id)?;
-    let (b, e) = store.pair(id)?;
+    let (b, _) = store.pair(id)?;
     // Wait for the prefix's Wine server to exit before hiding it from the library.
-    stop_environment(store, &b, &e)?;
-    wait_for_server(store, &b, &e)?;
+    engine_change::stop_all(store, &b)?;
     store.update(|s| {
         let index = s.bottles.iter().position(|b| b.id == id).ok_or(local("Окружение не найдено", "Environment not found"))?;
         let b = s.bottles.remove(index);
@@ -15,7 +14,7 @@ pub(crate) fn trash(store: &Store, id: &str) -> Result<Value> {
     Ok(json!({"id":id}))
 }
 
-fn wait_for_server(store: &Store, b: &Bottle, e: &Engine) -> Result<()> {
+pub(crate) fn wait_for_server(store: &Store, b: &Bottle, e: &Engine) -> Result<()> {
     let server = if e.server.is_empty() { Path::new(&e.wine).parent().ok_or(local("Не найдена папка Wine", "Wine folder not found"))?.join("wineserver") } else { PathBuf::from(&e.server) };
     let mut command = runtime_command(e, &server.to_string_lossy())?;
     command.env("WINEPREFIX", store.prefix(&b.id)?).arg("-w").stdout(Stdio::null()).stderr(Stdio::null());
@@ -40,6 +39,7 @@ pub(crate) fn purge(store: &Store, id: &str) -> Result<Value> {
     let state = store.read()?;
     let b = state.deleted_bottles.iter().find(|b| b.id == id).ok_or(local("Сначала переместите окружение в корзину", "Move the environment to Vela Trash first"))?;
     let prefix = store.prefix(id)?;
+    let backups = engine_change::backup_root(store, id)?;
     let installers_root = store.root.join("installers");
     if store.root.join("logs").is_symlink() {
         return Err(local("Папка журналов не должна быть символической ссылкой", "The log folder must not be a symbolic link").into());
@@ -48,14 +48,13 @@ pub(crate) fn purge(store: &Store, id: &str) -> Result<Value> {
         return Err(local("Папка установщиков не должна быть символической ссылкой", "The installer folder must not be a symbolic link").into());
     }
     if prefix.exists() {
-        let e = state.engines.iter().find(|e| e.id == b.engine_id).ok_or(local("Движок не найден", "Engine not found"))?;
-        stop_environment(store, b, e)?;
-        wait_for_server(store, b, e)?;
+        engine_change::stop_all(store, b)?;
         // remove_dir_all does not follow Wine's symlinks into the host filesystem.
         fs::remove_dir_all(prefix).map_err(|e| e.to_string())?;
     }
     let installers = installers_root.join(id);
     if installers.exists() { fs::remove_dir_all(installers).map_err(|e| e.to_string())?; }
+    if backups.exists() { fs::remove_dir_all(backups).map_err(|e| e.to_string())?; }
     for entry in fs::read_dir(store.root.join("logs")).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().into_owned();

@@ -14,7 +14,7 @@ flowchart TD
     Wine --> Mac[macOS windows, files, and devices]
 ~~~
 
-The interface invokes a short-lived core process away from the main UI thread. Each request and reply is a single JSON line. The interface waits up to 180 seconds for initialization and launcher setup, and 30 seconds for other core operations. Network downloads run separately through URLSession.
+The interface invokes a short-lived core process away from the main UI thread. Each request and reply is a single JSON line. The interface waits up to 180 seconds for initialization and launcher setup, 30 minutes for an engine change or backup restore, 10 minutes for permanent deletion, and 30–60 seconds for other core operations. Network downloads run separately through URLSession.
 
 The core starts Wine with an argument array rather than a macOS shell. It sets the selected prefix, matching Wine loader/server paths, working directory, and supported environment variables explicitly. Long-lived Windows programs write to log files rather than holding the core's output pipe open.
 
@@ -47,6 +47,7 @@ The normal root is `~/Library/Application Support/Vela`. It contains:
 | `state.json` | Engines, active/deleted environments, shortcuts, variables, and saved scaling |
 | `prefixes/<id>/` | Environment files and Windows registry |
 | `logs/` | Per-operation output |
+| `engine-backups/<id>/<backup-id>/` | Pre-change prefix and saved environment metadata; retained replaced prefixes |
 | `installers/<id>/` | Cached official launcher installer for retry |
 
 State updates use a temporary file, synchronization, atomic rename, and a lock to serialize concurrent writers. Corrupt state or an unsupported future schema is reported instead of being overwritten with an empty library.
@@ -69,7 +70,7 @@ Vela Trash keeps files until `purge_environment` is separately confirmed. Purgin
 
 Launch and initialization share the per-environment lock so they cannot race with deletion. Locks are held by open file descriptors and released by the kernel on exit or crash. The small files in `locks/` can remain after release. State writes retain their separate atomic replacement lock.
 
-Older Vela versions do not preserve the deleted-environment metadata when rewriting state. Avoid opening a library containing Vela Trash records with an older app version.
+Older Vela versions may drop deleted-environment or engine-change metadata when rewriting state. Avoid opening a library with Trash records or an interrupted engine change in an older app version.
 
 ## Interface languages
 
@@ -83,9 +84,13 @@ Catalog changes ship with Vela updates. Installed launchers manage their own cli
 
 The app, Wine source releases, macOS binary distributions, FEX, and graphics libraries have independent release cycles.
 
-The current manager performs no engine downloads or automatic updates. Install versions side by side and test a different engine in a new environment. Updating a prefix can change its registry and installed files; returning to an older Wine binary alone is not a complete rollback.
+The current manager performs no engine downloads or automatic updates. Install versions side by side, then select another engine in environment settings. `change_engine` holds the per-environment operation lock, probes the target engine, stops the old server, and copies the prefix with macOS ditto/APFS cloning. Wine symlinks are preserved as links; external host files are not copied. A JSON snapshot records the environment's saved metadata.
 
-A future update system is intended to use signed manifests, verified archives, separate engine versions, and stopped-environment snapshots. These features are not implemented in the preview.
+Before the first Wine update, the state records the backup, target engine, and `changing_engine` status. The target runs `wineboot --update`, restores the DPI setting, executes a Windows command check, and is stopped before committing the new engine ID. Failures trigger a restore attempt. An interrupted operation remains blocked from launch and normal initialization until restored through settings. Launch and stop re-read the selected engine under the operation lock, preventing a stale engine selection from being used after a switch.
+
+`restore_engine_backup` stops the relevant servers and copies the saved prefix to a staging directory. It records a recovery state before renaming directories, retains the replaced prefix under the backup directory, then restores both prefix and saved metadata. The backup itself is retained and can recover a crash between directory renames. Only the latest pre-change backup is offered in the UI; all backup directories remain until manually removed or the environment is permanently purged. This is an engine-change recovery feature, not a general snapshot browser. Existing environment and shortcut paths remain unchanged.
+
+A future delivery system is intended to use signed manifests and verified engine archives. Manual engine switching, pre-change backup, and restore are implemented; automatic runtime delivery is not.
 
 ## Security boundary
 

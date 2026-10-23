@@ -10,7 +10,7 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
     project = Path(__file__).resolve().parents[1]
-    excluded = {"build", "target", "Data", "Engines", ".git", "__pycache__"}
+    excluded = {"build", "target", "Data", "Engines", "engine-backups", ".git", "__pycache__"}
     args.out.resolve().parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(project.rglob("*")):

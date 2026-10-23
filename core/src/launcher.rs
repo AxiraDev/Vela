@@ -69,7 +69,7 @@ pub(crate) fn install(store: &Store, r: &Request) -> Result<Value> {
     if let Err(e) = validate_installer(&installer, &entry, &engine) { let _ = fs::remove_dir_all(&cache); return Err(e); }
     let b = Bottle { id, name, engine_id: engine.id.clone(), status: "initializing".into(),
         environment: BTreeMap::new(), shortcuts: vec![], last_log: None, dpi: r.dpi,
-        installation: Some(Installation { launcher_id: entry.id, status: "pending".into(), installer_path: installer.to_string_lossy().into_owned(), client_path: None }) };
+        installation: Some(Installation { launcher_id: entry.id, status: "pending".into(), installer_path: installer.to_string_lossy().into_owned(), client_path: None }), engine_backup:None, pending_engine:None };
     if let Err(e) = store.update(|s| {
         fs::create_dir(store.prefix(&b.id)?).map_err(|e| e.to_string())?;
         s.bottles.push(b.clone()); Ok(())
@@ -172,7 +172,7 @@ fn start(store: &Store, id: &str) -> Result<Value> {
     let path = absolute_file(&installation.installer_path)?;
     let entry = catalog()?.into_iter().find(|e| e.id == installation.launcher_id).ok_or(local("Лаунчер не найден", "Launcher not found"))?;
     validate_installer(&path, &entry, &e)?;
-    let result = launch(store, &b, &e, &executable_args(&path, &[])?, path.parent().and_then(Path::to_str), &local(format!("Установка {}", entry.name), format!("Install {}", entry.name)));
+    let result = launch(store, &b, &executable_args(&path, &[])?, path.parent().and_then(Path::to_str), &local(format!("Установка {}", entry.name), format!("Install {}", entry.name)));
     store.update(|s| {
         let i = bottle_mut(s, id)?.installation.as_mut().ok_or(local("Установка не найдена", "Installation not found"))?;
         i.status = if result.is_ok() { "pending" } else { "failed" }.into(); Ok(())
@@ -219,6 +219,7 @@ pub(crate) fn reconcile(store: &Store) -> Result<()> {
     store.update(|s| {
         for (id, name, path, arguments) in &found {
             let b = bottle_mut(s, id)?;
+            if b.status != "ready" { continue; }
             let executable = path.to_string_lossy().into_owned();
             if !b.shortcuts.iter().any(|s| s.executable == executable) {
                 b.shortcuts.push(Shortcut { id: uid(), name: name.clone(), executable: executable.clone(), arguments: arguments.clone(), directory: path.parent().map(|p| p.to_string_lossy().into_owned()) });
