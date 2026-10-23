@@ -1,6 +1,12 @@
 # Changelog
 
-This file describes the prepared preview. Publication dates and future release entries will be added when releases are published.
+Changes in published and prepared preview builds.
+
+## 0.4.2 — Preview, build 8
+
+- Mark Intel WoW64 engines as a fallback for 32-bit applications in the library, engine selection, and environment header.
+- Keep the native ARM64/FEX engine first in the selection order; retaining an Intel engine does not switch existing environments.
+- Explain the fallback's Rosetta dependency without promising availability in future macOS versions.
 
 ## 0.4.1 — Preview, build 7
 

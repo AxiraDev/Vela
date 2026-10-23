@@ -286,7 +286,7 @@ struct VelaApp: App {
                 Button(tr("О Vela")) {
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .applicationName: "Vela",
-                        .applicationVersion: "0.4.1 · Preview",
+                        .applicationVersion: "0.4.2 · Preview",
                         .credits: NSAttributedString(string: tr("Независимая открытая оболочка Wine\nSwiftUI + Rust · MIT\nWine и графические компоненты имеют собственные лицензии."))
                     ])
                 }
@@ -457,13 +457,17 @@ struct EnginesView: View {
                             Image(systemName: "cpu.fill").font(.title).foregroundStyle(accent).frame(width: 48, height: 48).background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(engine.name).font(.headline)
-                        Text(engine.version).font(.caption).foregroundStyle(.secondary)
+                                Text(engine.version).font(.caption).foregroundStyle(.secondary)
                                 EngineSupportView(engine: engine)
                                 Text(engine.wine).font(.caption2).foregroundStyle(.tertiary).lineLimit(2).textSelection(.enabled)
                             }
                             Spacer()
                             Label(tr("Подключён"), systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
                         }.padding(18).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    if model.engines.contains(where: { $0.is32BitFallback }) {
+                        Text(tr("Keep the Intel Wine engine as a fallback for older 32-bit apps and installers. It also supports 64-bit apps and requires Rosetta on Apple Silicon. The current ARM64/FEX engine supports 64-bit apps only."))
+                            .font(.callout).foregroundStyle(.secondary)
                     }
                 }
                 VStack(alignment: .leading, spacing: 10) {
@@ -512,7 +516,7 @@ struct CreateBottleView: View {
                 Text(tr("Этот движок запускает 64-битные Windows-программы. Старые 32-битные приложения и установщики пока не поддерживаются.")).font(.caption).foregroundStyle(.secondary)
             }
             if model.engines.first(where: { $0.id == engineID })?.needsRosetta == true {
-                Text(tr("Этот Intel-движок зависит от Rosetta. Для работы после прекращения её поддержки выберите ARM64 + FEX.")).font(.caption).foregroundStyle(.orange)
+                Text(tr("This Intel engine requires Rosetta on Apple Silicon. Keeping it installed does not guarantee support in future macOS versions.")).font(.caption).foregroundStyle(.orange)
             }
             Text(tr("64-битное окружение. Запуск 32-битных программ зависит от поддержки WoW64 выбранной сборкой."))
                 .font(.caption).foregroundStyle(.secondary)

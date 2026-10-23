@@ -12,7 +12,7 @@ Create separate Windows environments, connect your preferred Wine engines, and l
 
 ## Project status
 
-Vela 0.4.1 is an early preview for Apple Silicon. The interface supports English and Russian and follows your device languages by default. The primary project documentation is in English.
+Vela 0.4.2 is an early preview for Apple Silicon. The interface supports English and Russian and follows your device languages by default. The primary project documentation is in English.
 
 The app and source archives do **not** include a Wine engine. A compatible engine must be installed separately. Experimental ARM64/FEX support has been validated locally with a small x64 test program; compatibility with individual Windows applications varies.
 
@@ -52,7 +52,7 @@ The current binary is built for Apple Silicon. An Intel build and an Intel Mac t
 
 ### Preview application
 
-1. Download `Vela-0.4.1-preview.zip` from the [Releases page](https://github.com/AxiraDev/Vela/releases).
+1. Download `Vela-0.4.2-preview.zip` from the [Releases page](https://github.com/AxiraDev/Vela/releases).
 2. Extract `Vela.app` and place it in a writable location.
 3. Open Vela and add a compatible Wine application bundle, runtime directory, or `wine` executable.
 4. Create an environment and wait for initialization to finish.
@@ -67,6 +67,8 @@ Vela checks the engine version and looks for its matching `wineserver`. Keep eac
 Engine selection shows **Windows apps: 32-bit and 64-bit**, **64-bit only**, or **32/64-bit support unverified** prominently. A separate line identifies the Mac engine as **Apple Silicon (ARM64)** or **Intel (x86_64)**, with its Rosetta requirement. These describe different things: a 64-bit Intel Mac engine can support both 32-bit and 64-bit Windows applications through WoW64.
 
 Explicit runtime capability metadata takes priority. For Intel builds without a capability declaration, Vela inspects the expected 32-bit and 64-bit Windows/WoW64 module headers. Architecture alone is not treated as evidence of 32-bit support. In the launcher installation sheet, engines known to lack required 32-bit support are shown but cannot be selected.
+
+Intel WoW64 engines are marked **Fallback for 32-bit apps**. Keep one alongside the native engine for older applications and installers; it supports both Windows bitnesses but requires Rosetta on Apple Silicon. The native engine remains first in the list. Saving an Intel engine does not guarantee that it will work after Rosetta support ends, and the current ARM64/FEX build cannot replace its 32-bit execution path.
 
 [Gcenx macOS Wine builds](https://github.com/Gcenx/macOS_Wine_builds/releases) are one separately maintained source of macOS binaries. The Intel build used during validation requires Rosetta on Apple Silicon.
 
@@ -164,7 +166,7 @@ Rust dependencies and their license notices are included in `vendor/`. No third-
 To create a source archive:
 
 ~~~sh
-python3 scripts/package_source.py --out build/Vela-0.4.1-source.zip
+python3 scripts/package_source.py --out build/Vela-0.4.2-source.zip
 ~~~
 
 Wine binaries, user libraries, generated apps, and build directories are excluded.

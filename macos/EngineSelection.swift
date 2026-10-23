@@ -10,6 +10,7 @@ struct Engine: Codable, Identifiable, Sendable {
     let supports_x86_32: Bool?
     var isNative: Bool { architecture == "arm64" }
     var needsRosetta: Bool { backend == "rosetta" }
+    var is32BitFallback: Bool { needsRosetta && supports_x86_32 == true }
     var windowsSupportTitle: String {
         switch supports_x86_32 {
         case true: return tr("Windows apps: 32-bit and 64-bit")
@@ -30,6 +31,10 @@ struct EngineSupportView: View {
     let engine: Engine
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if engine.is32BitFallback {
+                Label(tr("Fallback for 32-bit apps"), systemImage: "lifepreserver")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+            }
             Text(engine.windowsSupportTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
             Text(trf("Mac engine: %@", engine.macArchitectureTitle)).font(.caption).foregroundStyle(.secondary)
             if engine.needsRosetta {
@@ -73,7 +78,7 @@ struct EnginePickerView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? accent : .clear, lineWidth: 1.5))
                                 .contentShape(RoundedRectangle(cornerRadius: 12))
                         }.buttonStyle(.plain).disabled(!compatible).opacity(compatible ? 1 : 0.65)
-                            .accessibilityLabel("\(engine.windowsSupportTitle), \(engine.macArchitectureTitle), \(engine.name)")
+                            .accessibilityLabel("\(engine.is32BitFallback ? tr("Fallback for 32-bit apps") + ", " : "")\(engine.windowsSupportTitle), \(engine.macArchitectureTitle), \(engine.name)")
                             .accessibilityValue(selected ? tr("Selected") : tr("Not selected"))
                     }
                 }

@@ -208,7 +208,7 @@
 "Установить" = "Установить";
 "Установщик · 32/64 бит" = "Установщик · 32/64 бит";
 "Установщик · 64 бита" = "Установщик · 64 бита";
-"Этот Intel-движок зависит от Rosetta. Для работы после прекращения её поддержки выберите ARM64 + FEX." = "Этот Intel-движок зависит от Rosetta. Для работы после прекращения её поддержки выберите ARM64 + FEX.";
+"This Intel engine requires Rosetta on Apple Silicon. Keeping it installed does not guarantee support in future macOS versions." = "Этот Intel-движок требует Rosetta на Apple Silicon. Сохранение движка не гарантирует его работу в будущих версиях macOS.";
 "Этот движок запускает 64-битные Windows-программы. Старые 32-битные приложения и установщики пока не поддерживаются." = "Этот движок запускает 64-битные Windows-программы. Старые 32-битные приложения и установщики пока не поддерживаются.";
 "“%@” and all its Windows applications, files, saved data, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept." = "Окружение «%@», его Windows-программы, файлы, сохранённые данные, установщики и журналы будут удалены. Восстановить их будет нельзя. Файлы вне окружения и движки Wine сохранятся.";
 "Windows apps: 32-bit and 64-bit" = "Windows-программы: 32 и 64 бита";
@@ -216,6 +216,8 @@
 "Windows apps: 32/64-bit support unverified" = "Windows: поддержка 32/64 бит не проверена";
 "Mac engine: %@" = "Движок для Mac: %@";
 "Requires Rosetta on Apple Silicon" = "Требуется Rosetta на Apple Silicon";
+"Fallback for 32-bit apps" = "Резервный для 32-битных программ";
+"Keep the Intel Wine engine as a fallback for older 32-bit apps and installers. It also supports 64-bit apps and requires Rosetta on Apple Silicon. The current ARM64/FEX engine supports 64-bit apps only." = "Сохраните Intel Wine как резервный движок для старых 32-битных программ и установщиков. Он также поддерживает 64-битные программы и требует Rosetta на Apple Silicon. Текущая сборка ARM64/FEX поддерживает только 64-битные программы.";
 "Runs without Rosetta" = "Работает без Rosetta";
 "Cannot run this 32-bit installer" = "Не запускает этот 32-битный установщик";
 "Selected" = "Выбран";

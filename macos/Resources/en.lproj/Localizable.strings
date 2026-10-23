@@ -208,7 +208,7 @@
 "Установить" = "Install";
 "Установщик · 32/64 бит" = "Installer · 32/64-bit";
 "Установщик · 64 бита" = "Installer · 64-bit";
-"Этот Intel-движок зависит от Rosetta. Для работы после прекращения её поддержки выберите ARM64 + FEX." = "This Intel engine depends on Rosetta. Choose ARM64 + FEX for a configuration that does not rely on Rosetta.";
+"This Intel engine requires Rosetta on Apple Silicon. Keeping it installed does not guarantee support in future macOS versions." = "This Intel engine requires Rosetta on Apple Silicon. Keeping it installed does not guarantee support in future macOS versions.";
 "Этот движок запускает 64-битные Windows-программы. Старые 32-битные приложения и установщики пока не поддерживаются." = "This engine runs 64-bit Windows applications. Older 32-bit applications and installers are not supported.";
 "“%@” and all its Windows applications, files, saved data, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept." = "“%@” and all its Windows applications, files, saved data, cached installers, and logs will be deleted. This cannot be undone. Files outside this environment and Wine engines are kept.";
 "Windows apps: 32-bit and 64-bit" = "Windows apps: 32-bit and 64-bit";
@@ -216,6 +216,8 @@
 "Windows apps: 32/64-bit support unverified" = "Windows apps: 32/64-bit support unverified";
 "Mac engine: %@" = "Mac engine: %@";
 "Requires Rosetta on Apple Silicon" = "Requires Rosetta on Apple Silicon";
+"Fallback for 32-bit apps" = "Fallback for 32-bit apps";
+"Keep the Intel Wine engine as a fallback for older 32-bit apps and installers. It also supports 64-bit apps and requires Rosetta on Apple Silicon. The current ARM64/FEX engine supports 64-bit apps only." = "Keep the Intel Wine engine as a fallback for older 32-bit apps and installers. It also supports 64-bit apps and requires Rosetta on Apple Silicon. The current ARM64/FEX engine supports 64-bit apps only.";
 "Runs without Rosetta" = "Runs without Rosetta";
 "Cannot run this 32-bit installer" = "Cannot run this 32-bit installer";
 "Selected" = "Selected";
