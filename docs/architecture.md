@@ -14,7 +14,7 @@ flowchart TD
     Wine --> Mac[macOS windows, files, and devices]
 ~~~
 
-The interface invokes a short-lived core process away from the main UI thread. Each request and reply is a single JSON line. The interface waits up to 180 seconds for initialization and 30 seconds for other operations.
+The interface invokes a short-lived core process away from the main UI thread. Each request and reply is a single JSON line. The interface waits up to 180 seconds for initialization and launcher setup, and 30 seconds for other core operations. Network downloads run separately through URLSession.
 
 The core starts Wine with an argument array rather than a macOS shell. It sets the selected prefix, matching Wine loader/server paths, working directory, and supported environment variables explicitly. Long-lived Windows programs write to log files rather than holding the core's output pipe open.
 
@@ -47,6 +47,7 @@ The normal root is `~/Library/Application Support/Vela`. It contains:
 | `state.json` | Engines, environments, shortcuts, variables, and saved scaling |
 | `prefixes/<id>/` | Environment files and Windows registry |
 | `logs/` | Per-operation output |
+| `installers/<id>/` | Cached official launcher installer for retry |
 
 State updates use a temporary file, synchronization, atomic rename, and a lock to serialize concurrent writers. Corrupt state or an unsupported future schema is reported instead of being overwritten with an empty library.
 
@@ -61,6 +62,10 @@ Windows scaling writes the environment's `HKCU\Control Panel\Desktop\LogPixels` 
 Stopping an environment invokes its matching wineserver with its explicit prefix. An empty-output exit code of 1 is treated as an already stopped server.
 
 ## Updates
+
+The built-in launcher catalog uses publisher download endpoints and exact redirect-host allowlists. Downloads happen in Swift; the Rust core validates headers, creates the environment, starts the installer, and detects known client paths. The core stores optional installation metadata alongside each environment, preserving compatibility with older state files. See [Launcher catalog](launcher-catalog.md).
+
+Catalog changes ship with Vela updates. Installed launchers manage their own client and game updates inside their environments.
 
 The app, Wine source releases, macOS binary distributions, FEX, and graphics libraries have independent release cycles.
 

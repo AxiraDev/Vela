@@ -8,6 +8,8 @@ Vela starts Windows programs through an external Wine engine. A Wine environment
 
 The manager does not automatically download engines. The release's app signature is local ad hoc signing; Developer ID signing and notarization are not configured.
 
+The launcher catalog downloads Windows installers from configured publisher endpoints over HTTPS. Redirects are restricted to exact hosts. Vela checks basic file headers and size but does not verify Windows Authenticode signatures. See [catalog download details](docs/launcher-catalog.md).
+
 ## Reporting a vulnerability
 
 If this repository has GitHub private vulnerability reporting enabled, use **Report a vulnerability** in its security section.

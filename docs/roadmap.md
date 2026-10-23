@@ -22,7 +22,7 @@ These are intended directions, not shipping features or delivery commitments.
 
 ## Application setup
 
-- Define an open format for application setup recipes and compatibility reports.
+- Expand the bundled launcher presets into richer, versioned setup recipes and compatibility reports.
 - Evaluate optional Winetricks integration.
 - Evaluate compatible graphics backends and dependency installation.
 - Detect available graphics capabilities before exposing configuration controls.

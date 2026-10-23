@@ -12,12 +12,13 @@ Create separate Windows environments, connect your preferred Wine engines, and l
 
 ## Project status
 
-Vela 0.2.0 is an early preview for Apple Silicon. The current application interface is in Russian; the primary project documentation is in English.
+Vela 0.3.0 is an early preview for Apple Silicon. The current application interface is in Russian; the primary project documentation is in English.
 
 The app and source archives do **not** include a Wine engine. A compatible engine must be installed separately. Experimental ARM64/FEX support has been validated locally with a small x64 test program; compatibility with individual Windows applications varies.
 
 ## Features
 
+- Install game launchers from a built-in catalog: download the official installer, create an environment, and detect its shortcut.
 - Register multiple Wine engines and keep environments tied to a specific engine.
 - Create separate 64-bit Wine environments with their own Windows files and registry.
 - Launch EXE and MSI files; save shortcuts, arguments, and working directories.
@@ -49,7 +50,7 @@ The current binary is built for Apple Silicon. An Intel build and an Intel Mac t
 
 ### Preview application
 
-1. Download `Vela-0.2.0-preview.zip` from the [Releases page](https://github.com/AxiraDev/Vela/releases).
+1. Download `Vela-0.3.0-preview.zip` from the [Releases page](https://github.com/AxiraDev/Vela/releases).
 2. Extract `Vela.app` and place it in a writable location.
 3. Open Vela and add a compatible Wine application bundle, runtime directory, or `wine` executable.
 4. Create an environment and wait for initialization to finish.
@@ -66,6 +67,16 @@ Vela checks the engine version and looks for its matching `wineserver`. Keep eac
 The experimental ARM64/FEX configuration is documented in [Native runtime notes](docs/native-runtime.md). Its binaries are not included in this release. Do not interpret the native engine support as an automatic engine installer.
 
 Adding an ARM64 engine does not convert existing Intel environments. Create a new environment for a different engine.
+
+### Install a game launcher
+
+Open **Игровые лаунчеры** (Game launchers), select a launcher, choose a Wine engine, and click **Скачать и установить** (Download and install). Vela downloads the Windows installer directly from the publisher, creates a separate environment, and opens the installation wizard. Finish the wizard yourself. When the expected client executable appears, Vela adds its shortcut automatically.
+
+The catalog includes Steam, Epic Games Launcher, GOG GALAXY, Battle.net, EA app, Ubisoft Connect, Rockstar Games Launcher, Amazon Games, itch.io, and Wargaming Game Center (EU). Riot Client has an information card only because games requiring Vanguard cannot run through Wine. The catalog is curated rather than an exhaustive list of every launcher.
+
+Many installers require 32-bit Windows support even when the client itself is 64-bit. Vela blocks known incompatible engine choices. The experimental 64-bit-only native engine cannot install these 32-bit bootstrappers. There is no automatic switch to an Intel engine.
+
+If a download address changes, use **Выбрать скачанный файл…** (Choose downloaded file) with the official installer. Vela still creates the environment for you. Custom installation paths may require adding the shortcut manually. Launcher and game compatibility has not been established by inclusion in the catalog. See [Launcher catalog](docs/launcher-catalog.md).
 
 ### Windows interface size
 
@@ -87,6 +98,7 @@ The default library location is:
 ~/Library/Application Support/Vela/
 ├── state.json
 ├── prefixes/
+├── installers/
 └── logs/
 ~~~
 
@@ -102,7 +114,7 @@ Engine and shortcut paths are absolute. Relocating an engine or library is not a
 
 ## Updates
 
-Vela 0.2 does not download or replace Wine engines automatically.
+Vela 0.3 does not download or replace Wine engines automatically. Catalog links ship with the app; changing a link requires an app update. Installed launchers download their own client and game updates inside their environments.
 
 Install engine versions in separate directories. Keep an existing environment on its current engine, and use a new environment to test another version. Replacing Wine files in place can break an otherwise working environment.
 
@@ -113,7 +125,7 @@ The app, Wine, CPU translation components, and graphics libraries have separate 
 - The experimental native runtime supports 64-bit Windows applications only. Vela rejects recognizable i386 PE executables when the engine declares that limitation. Installers can contain unsupported 32-bit child programs.
 - The preview does not install or manage DXMT, DXVK, MoltenVK, DirectX packages, or multimedia backends.
 - Application compatibility, gaming features, and anti-cheat support are not guaranteed.
-- There is no application catalog, Winetricks integration, automatic engine download, environment migration, snapshot/restore, or environment deletion.
+- There is no Winetricks integration, automatic engine download, environment migration, snapshot/restore, or environment deletion.
 - Existing shortcuts must be removed and added again to change their settings.
 - Process-tree status and application exit results are not tracked live. A launch notification means that the request was handed to Wine.
 - Logs are not rotated automatically.
@@ -136,7 +148,7 @@ Rust dependencies and their license notices are included in `vendor/`. No third-
 To create a source archive:
 
 ~~~sh
-python3 scripts/package_source.py --out build/Vela-0.2.0-source.zip
+python3 scripts/package_source.py --out build/Vela-0.3.0-source.zip
 ~~~
 
 Wine binaries, user libraries, generated apps, and build directories are excluded.

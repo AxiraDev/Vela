@@ -8,6 +8,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod engine;
+mod launcher;
 
 type Result<T> = std::result::Result<T, String>;
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -47,6 +48,8 @@ struct Bottle {
     last_log: Option<String>,
     #[serde(default)]
     dpi: Option<u32>,
+    #[serde(default)]
+    installation: Option<launcher::Installation>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -73,6 +76,8 @@ struct Request {
     #[serde(default)]
     tool: String,
     dpi: Option<u32>,
+    #[serde(default)]
+    launcher_id: String,
 }
 
 fn uid() -> String {
@@ -311,7 +316,10 @@ fn apply_dpi(store: &Store, b: &Bottle, e: &Engine, dpi: u32) -> Result<Value> {
 }
 fn dispatch(store: &Store, r: Request) -> Result<Value> {
     match r.op.as_str() {
-        "list" => Ok(json!({"state": store.read()?, "root": store.root})),
+        "list" => { launcher::reconcile(store)?; Ok(json!({"state": store.read()?, "root": store.root})) },
+        "catalog" => Ok(json!({"launchers": launcher::catalog()?})),
+        "install_launcher" => launcher::install(store, &r),
+        "retry_launcher" => launcher::retry(store, &r.id),
         "add_engine" => {
             let location = engine::locate(&r.path)?;
             let mut e = Engine { id: uid(), name: String::new(), wine: location.wine.to_string_lossy().into_owned(), version: String::new(),
@@ -328,7 +336,7 @@ fn dispatch(store: &Store, r: Request) -> Result<Value> {
         "create" => {
             let name = clean_name(&r.name)?;
             if let Some(dpi) = r.dpi { validate_dpi(dpi)?; }
-            let b = Bottle { id: uid(), name, engine_id: r.engine_id, status: "initializing".into(), environment: BTreeMap::new(), shortcuts: vec![], last_log: None, dpi:r.dpi };
+            let b = Bottle { id: uid(), name, engine_id: r.engine_id, status: "initializing".into(), environment: BTreeMap::new(), shortcuts: vec![], last_log: None, dpi:r.dpi, installation:None };
             store.update(|s| {
                 if !s.engines.iter().any(|e| e.id == b.engine_id) { return Err("Сначала добавьте движок Wine".into()); }
                 fs::create_dir(store.prefix(&b.id)?).map_err(|e| e.to_string())?;

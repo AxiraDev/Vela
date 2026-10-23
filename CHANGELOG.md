@@ -2,6 +2,15 @@
 
 This file describes the prepared preview. Publication dates and future release entries will be added when releases are published.
 
+## 0.3.0 — Preview, build 5
+
+- Add a native game launcher catalog with ten official Windows installer presets.
+- Download installers with HTTPS, exact redirect-host restrictions, progress, cancellation, and a 512 MiB limit.
+- Create a separate environment, cache the installer, and open its interactive installation wizard.
+- Detect known client paths, create shortcuts, and offer installer retry in the same environment.
+- Show installer architecture requirements and block known 32-bit-only installer / 64-bit-only engine mismatches.
+- Include a Riot Client information card describing the Vanguard limitation.
+
 ## 0.2.0 — Preview, build 4
 
 ### Available

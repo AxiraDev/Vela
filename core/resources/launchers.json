@@ -1,0 +1,196 @@
+[
+  {
+    "id": "steam",
+    "name": "Steam",
+    "description": "Библиотека и магазин игр Valve.",
+    "website": "https://store.steampowered.com/about/",
+    "download": "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe",
+    "filename": "SteamSetup.exe",
+    "download_hosts": [
+      "cdn.fastly.steamstatic.com"
+    ],
+    "requires_wow64": true,
+    "note": "Совместимость зависит от движка Wine и конкретной игры.",
+    "executables": [
+      "Program Files (x86)/Steam/steam.exe",
+      "Program Files/Steam/steam.exe"
+    ]
+  },
+  {
+    "id": "epic",
+    "name": "Epic Games Launcher",
+    "description": "Игры из Epic Games Store.",
+    "website": "https://store.epicgames.com/download",
+    "download": "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi",
+    "filename": "EpicGamesLauncherInstaller.msi",
+    "download_hosts": [
+      "launcher-public-service-prod06.ol.epicgames.com",
+      "epicgames-download1.akamaized.net"
+    ],
+    "requires_wow64": true,
+    "note": "Совместимость зависит от движка Wine и конкретной игры.",
+    "executables": [
+      "Program Files (x86)/Epic Games/Launcher/Portal/Binaries/Win64/EpicGamesLauncher.exe",
+      "Program Files/Epic Games/Launcher/Portal/Binaries/Win64/EpicGamesLauncher.exe",
+      "Program Files (x86)/Epic Games/Launcher/Portal/Binaries/Win32/EpicGamesLauncher.exe"
+    ]
+  },
+  {
+    "id": "gog",
+    "name": "GOG GALAXY",
+    "description": "Библиотека игр GOG.",
+    "website": "https://www.gog.com/galaxy",
+    "download": "https://webinstallers.gog-statics.com/download/GOG_Galaxy_2.0.exe",
+    "filename": "GOG_Galaxy_2.0.exe",
+    "download_hosts": [
+      "webinstallers.gog-statics.com"
+    ],
+    "requires_wow64": true,
+    "note": "Совместимость зависит от движка Wine и конкретной игры.",
+    "executables": [
+      "Program Files (x86)/GOG Galaxy/GalaxyClient.exe",
+      "Program Files/GOG Galaxy/GalaxyClient.exe"
+    ]
+  },
+  {
+    "id": "battlenet",
+    "name": "Battle.net",
+    "description": "Лаунчер Blizzard.",
+    "website": "https://download.battle.net/en-us/desktop",
+    "download": "https://downloader.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe",
+    "filename": "Battle.net-Setup.exe",
+    "download_hosts": [
+      "downloader.battle.net"
+    ],
+    "requires_wow64": true,
+    "note": "Совместимость зависит от движка Wine и конкретной игры.",
+    "executables": [
+      "Program Files (x86)/Battle.net/Battle.net Launcher.exe",
+      "Program Files/Battle.net/Battle.net Launcher.exe"
+    ]
+  },
+  {
+    "id": "ea",
+    "name": "EA app",
+    "description": "Библиотека Electronic Arts.",
+    "website": "https://www.ea.com/ea-app",
+    "download": "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
+    "filename": "EAappInstaller.exe",
+    "download_hosts": [
+      "origin-a.akamaihd.net"
+    ],
+    "requires_wow64": true,
+    "note": "Сам клиент требует 64-битную Windows, а загрузчик — поддержку 32 бит. Игры с EA anticheat могут не работать.",
+    "executables": [
+      "Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe",
+      "Program Files (x86)/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe"
+    ]
+  },
+  {
+    "id": "ubisoft",
+    "name": "Ubisoft Connect",
+    "description": "Игры и сервисы Ubisoft.",
+    "website": "https://www.ubisoft.com/en-us/ubisoft-connect",
+    "download": "https://static3.cdn.ubi.com/orbit/launcher_installer/UbisoftConnectInstaller.exe",
+    "filename": "UbisoftConnectInstaller.exe",
+    "download_hosts": [
+      "static3.cdn.ubi.com"
+    ],
+    "requires_wow64": true,
+    "note": "Совместимость зависит от движка Wine и конкретной игры.",
+    "executables": [
+      "Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe",
+      "Program Files/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe",
+      "Program Files (x86)/Ubisoft/Ubisoft Game Launcher/upc.exe"
+    ]
+  },
+  {
+    "id": "rockstar",
+    "name": "Rockstar Games Launcher",
+    "description": "Библиотека Rockstar Games.",
+    "website": "https://www.rockstargames.com/launcher",
+    "download": "https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe",
+    "filename": "Rockstar-Games-Launcher.exe",
+    "download_hosts": [
+      "gamedownloads.rockstargames.com"
+    ],
+    "requires_wow64": false,
+    "note": "Загрузчик 64-битный; дополнительные компоненты могут требовать WoW64. Игры с античитом могут не запускаться.",
+    "executables": [
+      "Program Files/Rockstar Games/Launcher/Launcher.exe",
+      "Program Files (x86)/Rockstar Games/Launcher/Launcher.exe"
+    ]
+  },
+  {
+    "id": "amazon",
+    "name": "Amazon Games",
+    "description": "Игры из библиотеки Amazon Games.",
+    "website": "https://www.amazongames.com/en-us/support/prime-gaming",
+    "download": "https://download.amazongames.com/AmazonGamesSetup.exe",
+    "filename": "AmazonGamesSetup.exe",
+    "download_hosts": [
+      "download.amazongames.com"
+    ],
+    "requires_wow64": true,
+    "note": "Совместимость зависит от движка Wine и конкретной игры.",
+    "executables": [
+      "users/{user}/AppData/Local/Amazon Games/App/Amazon Games.exe",
+      "Program Files/Amazon Games/App/Amazon Games.exe",
+      "Program Files (x86)/Amazon Games/App/Amazon Games.exe"
+    ]
+  },
+  {
+    "id": "itch",
+    "name": "itch.io",
+    "description": "Инди-игры и библиотека itch.io.",
+    "website": "https://itch.io/app",
+    "download": "https://itch.io/app/download?platform=windows",
+    "filename": "itch-setup.exe",
+    "download_hosts": [
+      "itch.io",
+      "broth.itch.zone",
+      "broth.itch.ovh",
+      "itchio-mirror.cb031a832f44726753d6267436f3b414.r2.cloudflarestorage.com"
+    ],
+    "requires_wow64": false,
+    "note": "Загрузчик 64-битный. Совместимость клиента и игр зависит от движка Wine.",
+    "executables": [
+      "users/{user}/AppData/Local/itch/itch-setup.exe"
+    ],
+    "arguments": [
+      "--prefer-launch",
+      "--appname",
+      "itch"
+    ]
+  },
+  {
+    "id": "wargaming",
+    "name": "Wargaming Game Center",
+    "description": "Клиент Wargaming, регион EU.",
+    "website": "https://eu.wargaming.net/en/wgc",
+    "download": "https://redirect.wargaming.net/WGC/Wargaming_Game_Center_Install_EU.exe",
+    "filename": "Wargaming_Game_Center_Install_EU.exe",
+    "download_hosts": [
+      "redirect.wargaming.net",
+      "wds.wargaming.net"
+    ],
+    "requires_wow64": true,
+    "note": "Устанавливается версия EU. Для других регионов можно выбрать официальный установщик вручную.",
+    "executables": [
+      "ProgramData/Wargaming.net/GameCenter/wgc.exe",
+      "Program Files/Wargaming.net/GameCenter/wgc.exe"
+    ]
+  },
+  {
+    "id": "riot",
+    "name": "Riot Client",
+    "description": "Информация о совместимости игр Riot.",
+    "website": "https://www.riotgames.com/en/riot-client",
+    "download": null,
+    "filename": "",
+    "download_hosts": [],
+    "requires_wow64": true,
+    "note": "Автоустановка не предлагается: игры с Riot Vanguard требуют поддерживаемой Windows и не запускаются через Wine.",
+    "executables": []
+  }
+]

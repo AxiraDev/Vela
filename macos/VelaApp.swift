@@ -35,7 +35,28 @@ struct Bottle: Codable, Identifiable, Sendable {
     let shortcuts: [Shortcut]
     let last_log: String?
     let dpi: Int?
+    let installation: LauncherInstallation?
 }
+struct LauncherInstallation: Codable, Sendable {
+    let launcher_id: String
+    let status: String
+    let installer_path: String
+    let client_path: String?
+}
+struct LauncherEntry: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let description: String
+    let website: String
+    let download: String?
+    let filename: String
+    let download_hosts: [String]
+    let requires_wow64: Bool
+    let note: String
+    func accepts(_ engine: Engine) -> Bool { !requires_wow64 || engine.supports_x86_32 != false }
+}
+struct CatalogReply: Decodable, Sendable { let launchers: [LauncherEntry] }
+struct InstalledReply: Decodable, Sendable { let id: String }
 struct LibraryState: Codable, Sendable { let schema: Int; let engines: [Engine]; let bottles: [Bottle] }
 struct Snapshot: Codable, Sendable { let state: LibraryState; let root: String }
 struct Reply<T: Decodable>: Decodable { let ok: Bool; let data: T?; let error: String? }
@@ -67,7 +88,7 @@ struct Core: Sendable {
     func call<T: Decodable & Sendable>(_ request: [String: Any], as: T.Type) async throws -> T {
         var data = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
         data.append(0x0a)
-        let timeout: Double = ["create", "initialize"].contains(request["op"] as? String ?? "") ? 180 : 30
+        let timeout: Double = ["create", "initialize", "install_launcher", "retry_launcher"].contains(request["op"] as? String ?? "") ? 180 : 30
         let executable = executable, root = root
         return try await Task.detached(priority: .userInitiated) {
             let process = Process()
@@ -109,9 +130,82 @@ final class AppModel: ObservableObject {
     @Published var notice: String?
     @Published var error: String?
     @Published var showingSupport = false
+    @Published var launchers: [LauncherEntry] = []
+    @Published var downloadProgress: Double?
+    @Published var canCancelDownload = false
+    private var installationTask: Task<Void, Never>?
     let core = Core()
 
     var selectedBottle: Bottle? { bottles.first { $0.id == selection } }
+    func loadCatalog() async {
+        do { launchers = try await core.call(["op":"catalog"], as: CatalogReply.self).launchers }
+        catch { self.error = error.localizedDescription }
+    }
+    func install(_ entry: LauncherEntry, engineID: String, name: String, dpi: Int, localFile: URL?) {
+        guard !busy else { return }
+        busy = true; notice = nil; downloadProgress = nil
+        canCancelDownload = localFile == nil
+        activity = "Скачиваем \(entry.name)…"
+        installationTask = Task {
+            var downloadFolder: URL?
+            defer {
+                if let downloadFolder { try? FileManager.default.removeItem(at: downloadFolder) }
+                busy = false; canCancelDownload = false; downloadProgress = nil; activity = ""; installationTask = nil
+            }
+            do {
+                let installer: URL
+                if let localFile { installer = localFile }
+                else {
+                    guard let source = entry.download.flatMap(URL.init(string:)), LauncherDownload.allows(source, hosts: entry.download_hosts) else {
+                        throw VelaError.message("Нет проверенной ссылки загрузки.")
+                    }
+                    let configuration = URLSessionConfiguration.ephemeral
+                    configuration.timeoutIntervalForRequest = 60
+                    configuration.timeoutIntervalForResource = 900
+                    configuration.urlCache = nil
+                    configuration.httpCookieStorage = nil
+                    configuration.urlCredentialStorage = nil
+                    let session = URLSession(configuration: configuration)
+                    defer { session.invalidateAndCancel() }
+                    let delegate = LauncherDownload(hosts: entry.download_hosts) { received, total in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.canCancelDownload else { return }
+                            self.downloadProgress = total > 0 ? min(1, Double(received) / Double(total)) : nil
+                            self.activity = "Скачиваем \(entry.name) · \(ByteCountFormatter.string(fromByteCount: received, countStyle: .file))"
+                        }
+                    }
+                    var request = URLRequest(url: source)
+                    request.setValue("Vela/0.3", forHTTPHeaderField: "User-Agent")
+                    let (temporary, response) = try await session.download(for: request, delegate: delegate)
+                    defer { try? FileManager.default.removeItem(at: temporary) }
+                    try Task.checkCancellation()
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                          let final = response.url, LauncherDownload.allows(final, hosts: entry.download_hosts) else {
+                        throw VelaError.message("Официальный сервер не отдал установщик. Попробуйте позже или выберите файл с сайта издателя.")
+                    }
+                    let size = (try FileManager.default.attributesOfItem(atPath: temporary.path)[.size] as? NSNumber)?.int64Value ?? 0
+                    guard size >= 64, size <= LauncherDownload.maximumSize else { throw VelaError.message("Недопустимый размер установщика (максимум 512 МБ).") }
+                    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vela-download-\(UUID().uuidString)")
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+                    downloadFolder = folder
+                    installer = folder.appendingPathComponent(entry.filename)
+                    try FileManager.default.moveItem(at: temporary, to: installer)
+                }
+                try Task.checkCancellation()
+                canCancelDownload = false; downloadProgress = nil
+                activity = "Создаём окружение и открываем установщик \(entry.name)…"
+                let reply = try await core.call(["op":"install_launcher", "launcher_id":entry.id, "engine_id":engineID, "name":name, "dpi":dpi, "path":installer.path], as: InstalledReply.self)
+                await refresh()
+                selection = reply.id
+                notice = "Завершите мастер установки \(entry.name). Vela добавит ярлык, когда найдёт файлы клиента."
+            } catch {
+                if Task.isCancelled { notice = "Загрузка отменена." }
+                else { self.error = error.localizedDescription }
+                await refresh()
+            }
+        }
+    }
+    func cancelDownload() { installationTask?.cancel() }
     func refresh() async {
         defer { loading = false }
         do {
@@ -159,7 +253,7 @@ final class AppModel: ObservableObject {
     func prefix(_ bottle: Bottle) -> String { core.root.appendingPathComponent("prefixes/\(bottle.id)").path }
 }
 
-private let accent = Color(red: 0.51, green: 0.61, blue: 1)
+let accent = Color(red: 0.51, green: 0.61, blue: 1)
 
 enum SupportConfiguration {
     static var donationURL: URL? {
@@ -179,7 +273,13 @@ struct VelaApp: App {
             ContentView().environmentObject(model)
                 .frame(minWidth: 1000, minHeight: 680)
                 .tint(accent)
-                .task { await model.refresh() }
+                .task {
+                    await model.refresh(); await model.loadCatalog()
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(3))
+                        if !model.busy && model.bottles.contains(where: { $0.installation?.status == "pending" }) { await model.refresh() }
+                    }
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1160, height: 780)
@@ -193,7 +293,7 @@ struct VelaApp: App {
                 Button("О Vela") {
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .applicationName: "Vela",
-                        .applicationVersion: "0.2.0 · Preview",
+                        .applicationVersion: "0.3.0 · Preview",
                         .credits: NSAttributedString(string: "Независимая открытая оболочка Wine\nSwiftUI + Rust · MIT\nWine и графические компоненты имеют собственные лицензии.")
                     ])
                 }
@@ -220,6 +320,7 @@ struct ContentView: View {
                 }.padding(.horizontal, 20).padding(.top, 36)
                 List(selection: $model.selection) {
                     Label("Движки Wine", systemImage: "cpu").tag("engines")
+                    Label("Игровые лаунчеры", systemImage: "gamecontroller").tag("launchers")
                     Section("Окружения") {
                         ForEach(model.bottles) { bottle in
                             HStack {
@@ -246,13 +347,16 @@ struct ContentView: View {
                     ProgressView("Загружаем библиотеку…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let bottle = model.selectedBottle {
                     BottleView(bottle: bottle).id(bottle.id)
-                } else { EnginesView() }
+                } else if model.selection == "launchers" { LaunchersView() }
+                else { EnginesView() }
                 if model.busy || model.notice != nil {
                     HStack(spacing: 10) {
                         if model.busy { ProgressView().controlSize(.small) }
                         else { Image(systemName: "info.circle").foregroundStyle(accent) }
                         Text(model.busy ? model.activity : (model.notice ?? "")).font(.callout).textSelection(.enabled)
+                        if let progress = model.downloadProgress { ProgressView(value: progress).frame(width: 100) }
                         Spacer()
+                        if model.canCancelDownload { Button("Отменить загрузку") { model.cancelDownload() } }
                         if !model.busy { Button { model.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                     }.padding(14).background(.quaternary.opacity(0.45))
                 }
@@ -357,7 +461,7 @@ struct EnginesView: View {
                     Text("Для смены движка создайте новое окружение. Это сохраняет рабочую конфигурацию.").font(.caption).foregroundStyle(.secondary)
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
                 HStack {
-                    Text("Vela 0.2 · Preview · MIT").font(.caption).foregroundStyle(.tertiary)
+                    Text("Vela 0.3 · Preview · MIT").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
                     Button("Папка данных") { model.showFolder(model.core.root.path) }.buttonStyle(.link)
                 }
@@ -443,6 +547,20 @@ struct BottleView: View {
                 Button { model.chooseProgram(for: bottle) } label: { Label("Открыть EXE / MSI", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy || bottle.status != "ready")
             }.padding(.top, 24)
+            if let installation = bottle.installation {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(installation.status == "detected" ? "Лаунчер найден · ярлык добавлен" : "Ожидаем файлы лаунчера", systemImage: installation.status == "detected" ? "checkmark.circle" : "arrow.down.circle")
+                        .foregroundStyle(installation.status == "detected" ? .green : accent)
+                    Text(installation.status == "detected" ? "Перед первым запуском дождитесь завершения мастера установки." : "Завершите установку в окне Windows. Если выбрана другая папка, добавьте ярлык вручную.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Проверить установку") { Task { await model.refresh() } }.disabled(model.busy)
+                        if installation.status != "detected" {
+                            Button("Открыть установщик снова") { model.perform("Открываем установщик…", request: ["op":"retry_launcher", "id":bottle.id]) }.disabled(model.busy)
+                        }
+                    }
+                }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+            }
             Picker("Раздел", selection: $tab) {
                 Text("Программы").tag("library")
                 Text("Настройки").tag("settings")

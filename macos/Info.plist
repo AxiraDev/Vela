@@ -6,8 +6,8 @@
 <key>CFBundleName</key><string>Vela</string>
 <key>CFBundleIconFile</key><string>AppIcon.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>0.3.0</string>
+<key>CFBundleVersion</key><string>5</string>
 <key>VelaDonationURL</key><string>https://boosty.to/axira_dev/donate</string>
 <key>CFBundleDevelopmentRegion</key><string>ru</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>

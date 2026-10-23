@@ -8,7 +8,7 @@ The copy below is ready to use for the current preview. Repository creation, upl
 
 ## Repository description
 
-Free, open-source Wine manager for macOS and Apple Silicon. Launch Windows apps, manage Wine prefixes, and configure multiple Wine engines with a native SwiftUI interface powered by Rust.
+Free, open-source Wine manager for macOS and Apple Silicon. Install game launchers, run Windows apps, and manage Wine prefixes with a native SwiftUI interface and Rust core.
 
 ## README title
 
@@ -50,7 +50,7 @@ From the project root:
 git init -b main
 git add .cargo .github .gitattributes .gitignore LICENSE README.md README.ru.md THIRD_PARTY.md CONTRIBUTING.md SECURITY.md CHANGELOG.md Portable.example core docs macos runtime scripts tests vendor
 git diff --cached --stat
-git commit -m "Prepare Vela 0.2.0 preview"
+git commit -m "Prepare Vela 0.3.0 preview"
 ~~~
 
 Review the staged files before committing. Generated apps, engines, libraries, and build output are excluded by .gitignore.
@@ -79,10 +79,10 @@ From the project root:
 ~~~sh
 cargo test --locked --offline --manifest-path core/Cargo.toml
 bash scripts/build.sh
-cp build/Vela-preview.zip build/Vela-0.2.0-preview.zip
-python3 scripts/package_source.py --out build/Vela-0.2.0-source.zip
+cp build/Vela-preview.zip build/Vela-0.3.0-preview.zip
+python3 scripts/package_source.py --out build/Vela-0.3.0-source.zip
 cd build
-shasum -a 256 Vela-0.2.0-preview.zip Vela-0.2.0-source.zip > SHA256SUMS
+shasum -a 256 Vela-0.3.0-preview.zip Vela-0.3.0-source.zip > SHA256SUMS
 cd ..
 ~~~
 
@@ -92,11 +92,11 @@ For the prepared release, use:
 
 | Field | Value |
 | --- | --- |
-| Tag | `v0.2.0-preview.1` |
-| Title | `Vela 0.2.0 Preview` |
+| Tag | `v0.3.0-preview.1` |
+| Title | `Vela 0.3.0 Preview` |
 | Status | Pre-release |
-| App version / build | `0.2.0 / 4` |
-| Release body | Contents of `docs/releases/v0.2.0-preview.1.md` |
+| App version / build | `0.3.0 / 5` |
+| Release body | Contents of `docs/releases/v0.3.0-preview.1.md` |
 
 Create the tag against the commit whose source produced the uploaded app. Attach the app ZIP, the prepared source ZIP, and SHA256SUMS.
 
@@ -104,7 +104,7 @@ The explicit source ZIP includes vendored Rust dependencies. Wine engines and us
 
 ## Short announcement
 
-Vela is an open-source Wine manager for macOS, built with SwiftUI and Rust. The first preview brings separate Windows environments, multiple Wine engines, app shortcuts, Windows scaling controls, and per-environment settings to a native Mac interface.
+Vela is an open-source Wine manager for macOS, built with SwiftUI and Rust. The preview includes a game launcher catalog with official downloads, automatic environment creation, and shortcut detection, alongside manual Wine engine and environment controls.
 
 The preview is available for Apple Silicon. A compatible Wine engine is required separately, and the current UI is in Russian. Feedback and contributions are welcome.
 
