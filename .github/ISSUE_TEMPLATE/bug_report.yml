@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible Vela problem or Windows application compatibility issue.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first. For vulnerabilities, follow SECURITY.md.
+        Remove personal information from logs. Do not upload installers, license keys, or a full environment.
+  - type: input
+    id: vela-version
+    attributes:
+      label: Vela version and build
+      placeholder: "0.2.0 Preview, build 4"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Mac and Wine engine
+      description: Include macOS version, Mac processor, and exact Wine version, architecture, and download source.
+    validations:
+      required: true
+  - type: textarea
+    id: windows-app
+    attributes:
+      label: Windows application
+      description: Include the application version and whether it is x64 or x86. Write "not applicable" for an interface-only issue.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted log output
+      description: Add only relevant output. Remove credentials and personal paths.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or additional context
+      description: Remove private content before attaching screenshots.

@@ -1,0 +1,648 @@
+import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+
+struct Engine: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let wine: String
+    let version: String
+    let architecture: String?
+    let backend: String?
+    let supports_x86_32: Bool?
+    var isNative: Bool { architecture == "arm64" }
+    var needsRosetta: Bool { backend == "rosetta" }
+    var compatibility: String {
+        if backend == "arm64-fex" { return supports_x86_32 == false ? "Без Rosetta · Windows 64 бит" : "ARM64 + FEX · без Rosetta" }
+        if isNative { return "ARM64 · без Rosetta" }
+        if needsRosetta { return "Intel · требуется Rosetta" }
+        return "Архитектура не определена"
+    }
+}
+struct Shortcut: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let executable: String
+    let arguments: [String]
+    let directory: String?
+}
+struct Bottle: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let engine_id: String
+    let status: String
+    let environment: [String: String]
+    let shortcuts: [Shortcut]
+    let last_log: String?
+    let dpi: Int?
+}
+struct LibraryState: Codable, Sendable { let schema: Int; let engines: [Engine]; let bottles: [Bottle] }
+struct Snapshot: Codable, Sendable { let state: LibraryState; let root: String }
+struct Reply<T: Decodable>: Decodable { let ok: Bool; let data: T?; let error: String? }
+struct EmptyReply: Decodable, Sendable {}
+struct LogReply: Decodable, Sendable { let text: String; let path: String? }
+
+enum VelaError: LocalizedError {
+    case message(String)
+    var errorDescription: String? { if case let .message(s) = self { return s }; return nil }
+}
+
+struct Core: Sendable {
+    let executable: URL
+    let root: URL
+    init() {
+        executable = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/vela-core")
+        if let override = ProcessInfo.processInfo.environment["VELA_HOME"] {
+            root = URL(fileURLWithPath: override)
+        } else {
+            let besideApp = Bundle.main.bundleURL.deletingLastPathComponent()
+            if FileManager.default.fileExists(atPath: besideApp.appendingPathComponent("Portable").path) {
+                root = besideApp.appendingPathComponent("Data")
+            } else {
+                root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Vela")
+            }
+        }
+    }
+    @MainActor
+    func call<T: Decodable & Sendable>(_ request: [String: Any], as: T.Type) async throws -> T {
+        var data = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
+        data.append(0x0a)
+        let timeout: Double = ["create", "initialize"].contains(request["op"] as? String ?? "") ? 180 : 30
+        let executable = executable, root = root
+        return try await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = executable
+            var env = ProcessInfo.processInfo.environment
+            env["VELA_HOME"] = root.path
+            process.environment = env
+            let input = Pipe(), output = Pipe()
+            process.standardInput = input
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let timer = DispatchSource.makeTimerSource(queue: .global())
+            timer.schedule(deadline: .now() + timeout)
+            timer.setEventHandler { if process.isRunning { process.terminate() } }
+            timer.resume()
+            defer { timer.cancel() }
+            try input.fileHandleForWriting.write(contentsOf: data)
+            try input.fileHandleForWriting.close()
+            let replyData = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let reply: Reply<T>
+            do { reply = try JSONDecoder().decode(Reply<T>.self, from: replyData) }
+            catch { throw VelaError.message("Ядро Vela не вернуло ответ. Код завершения: \(process.terminationStatus).") }
+            guard reply.ok, let result = reply.data else { throw VelaError.message(reply.error ?? "Неизвестная ошибка") }
+            return result
+        }.value
+    }
+}
+
+@MainActor
+final class AppModel: ObservableObject {
+    @Published var engines: [Engine] = []
+    @Published var bottles: [Bottle] = []
+    @Published var selection: String? = "engines"
+    @Published var loading = true
+    @Published var busy = false
+    @Published var activity = ""
+    @Published var notice: String?
+    @Published var error: String?
+    @Published var showingSupport = false
+    let core = Core()
+
+    var selectedBottle: Bottle? { bottles.first { $0.id == selection } }
+    func refresh() async {
+        defer { loading = false }
+        do {
+            let snapshot = try await core.call(["op": "list"], as: Snapshot.self)
+            engines = snapshot.state.engines.sorted { ($0.isNative ? 0 : 1, $0.name) < ($1.isNative ? 0 : 1, $1.name) }
+            bottles = snapshot.state.bottles
+        } catch { self.error = error.localizedDescription }
+    }
+    func perform(_ title: String, request: [String: Any], notice: String? = nil, completion: (() -> Void)? = nil) {
+        guard !busy else { return }
+        busy = true; activity = title; self.notice = nil
+        Task {
+            defer { busy = false; activity = "" }
+            do {
+                let _: EmptyReply = try await core.call(request, as: EmptyReply.self)
+                self.notice = notice
+                await refresh()
+                completion?()
+            } catch { self.error = error.localizedDescription; await refresh() }
+        }
+    }
+    func chooseEngine() {
+        let panel = NSOpenPanel()
+        panel.title = "Выберите Wine.app, папку движка или файл wine"
+        panel.prompt = "Добавить движок"
+        panel.canChooseFiles = true; panel.canChooseDirectories = true
+        panel.treatsFilePackagesAsDirectories = false
+        let adjacent = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Engines")
+        if FileManager.default.fileExists(atPath: adjacent.path) { panel.directoryURL = adjacent }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform("Проверяем движок…", request: ["op": "add_engine", "path": url.path], notice: "Движок добавлен. Теперь можно создать окружение.")
+    }
+    func chooseProgram(for bottle: Bottle) {
+        let panel = NSOpenPanel()
+        panel.title = "Открыть программу Windows"
+        panel.prompt = "Запустить"
+        panel.allowedContentTypes = ["exe", "msi", "bat", "cmd"].compactMap { UTType(filenameExtension: $0) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform("Передаём программу Wine…", request: ["op": "launch", "id": bottle.id, "path": url.path], notice: "Запуск передан Wine. Результат доступен в журнале.")
+    }
+    func tool(_ name: String, bottle: Bottle) {
+        perform("Открываем инструмент Wine…", request: ["op": "tool", "id": bottle.id, "tool": name], notice: "Инструмент передан Wine.")
+    }
+    func showFolder(_ path: String) { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+    func prefix(_ bottle: Bottle) -> String { core.root.appendingPathComponent("prefixes/\(bottle.id)").path }
+}
+
+private let accent = Color(red: 0.51, green: 0.61, blue: 1)
+
+enum SupportConfiguration {
+    static var donationURL: URL? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "VelaDonationURL") as? String,
+              let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+}
+
+@main
+struct VelaApp: App {
+    @StateObject private var model = AppModel()
+    var body: some Scene {
+        WindowGroup {
+            ContentView().environmentObject(model)
+                .frame(minWidth: 1000, minHeight: 680)
+                .tint(accent)
+                .task { await model.refresh() }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1160, height: 780)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .newItem) {
+                Button("Обновить библиотеку") { Task { await model.refresh() } }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
+            CommandGroup(replacing: .appInfo) {
+                Button("О Vela") {
+                    NSApplication.shared.orderFrontStandardAboutPanel(options: [
+                        .applicationName: "Vela",
+                        .applicationVersion: "0.2.0 · Preview",
+                        .credits: NSAttributedString(string: "Независимая открытая оболочка Wine\nSwiftUI + Rust · MIT\nWine и графические компоненты имеют собственные лицензии.")
+                    ])
+                }
+            }
+            CommandGroup(after: .help) {
+                Button("Поддержать Vela…") { model.showingSupport = true }
+            }
+        }
+    }
+}
+
+struct ContentView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var creating = false
+    var body: some View {
+        NavigationSplitView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 10) {
+                    Image(systemName: "sailboat.fill").font(.system(size: 27)).foregroundStyle(accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Vela").font(.system(size: 26, weight: .semibold, design: .rounded))
+                        Text("WINDOWS НА ВАШЕМ MAC").font(.system(size: 8, weight: .semibold)).tracking(1.1).foregroundStyle(.secondary)
+                    }
+                }.padding(.horizontal, 20).padding(.top, 36)
+                List(selection: $model.selection) {
+                    Label("Движки Wine", systemImage: "cpu").tag("engines")
+                    Section("Окружения") {
+                        ForEach(model.bottles) { bottle in
+                            HStack {
+                                Image(systemName: "shippingbox").foregroundStyle(accent)
+                                Text(bottle.name).lineLimit(1)
+                                Spacer()
+                                if bottle.status != "ready" { Image(systemName: "exclamationmark.circle").foregroundStyle(.orange) }
+                            }.tag(bottle.id)
+                        }
+                    }
+                }.listStyle(.sidebar)
+                VStack(alignment: .leading, spacing: 14) {
+                    Button { creating = true } label: { Label("Новое окружение", systemImage: "plus").frame(maxWidth: .infinity) }
+                        .buttonStyle(.borderedProminent).disabled(model.engines.isEmpty || model.busy)
+                    Button { model.showingSupport = true } label: {
+                        Label("Поддержать Vela", systemImage: "heart").frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered)
+                    Text("Открытый код. Свободный выбор.").font(.caption2).foregroundStyle(.tertiary)
+                }.padding(20)
+            }.navigationSplitViewColumnWidth(min: 220, ideal: 245, max: 300)
+        } detail: {
+            VStack(spacing: 0) {
+                if model.loading {
+                    ProgressView("Загружаем библиотеку…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let bottle = model.selectedBottle {
+                    BottleView(bottle: bottle).id(bottle.id)
+                } else { EnginesView() }
+                if model.busy || model.notice != nil {
+                    HStack(spacing: 10) {
+                        if model.busy { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "info.circle").foregroundStyle(accent) }
+                        Text(model.busy ? model.activity : (model.notice ?? "")).font(.callout).textSelection(.enabled)
+                        Spacer()
+                        if !model.busy { Button { model.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+                    }.padding(14).background(.quaternary.opacity(0.45))
+                }
+            }
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .sheet(isPresented: $creating) { CreateBottleView() }
+        .sheet(isPresented: $model.showingSupport) { SupportView() }
+        .alert("Не удалось выполнить действие", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            Button("Понятно") { model.error = nil }
+        } message: { Text(model.error ?? "") }
+    }
+}
+
+struct SupportView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var openError = false
+    private let donationURL = SupportConfiguration.donationURL
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable().frame(width: 80, height: 80)
+            Text("Поддержите развитие Vela").font(.title2.weight(.semibold))
+            Text("Ваша поддержка поможет исправлять ошибки, улучшать совместимость и выпускать обновления.")
+                .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            if let donationURL {
+                Text("Страница поддержки: \(donationURL.host ?? "")")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Text("Страница поддержки пока не подключена.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Button {
+                guard let donationURL else { return }
+                openError = !NSWorkspace.shared.open(donationURL)
+            } label: {
+                Label("Открыть страницу поддержки", systemImage: "arrow.up.right")
+            }.buttonStyle(.borderedProminent).disabled(donationURL == nil)
+            if openError {
+                Text("Не удалось открыть браузер. Попробуйте ещё раз.").font(.caption).foregroundStyle(.red)
+            }
+            Text("Поддержка добровольная. Пользоваться Vela можно бесплатно.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction)
+        }.padding(32).frame(width: 440).tint(accent)
+    }
+}
+
+struct EnginesView: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("ВАША СРЕДА WINDOWS").font(.caption).tracking(1.8).foregroundStyle(accent)
+                        Text("Один Mac. Больше возможностей.").font(.system(size: 30, weight: .semibold, design: .rounded))
+                        Text("Выберите Wine, создайте окружение и запустите нужную программу.")
+                            .font(.body).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }.padding(.top, 24)
+                HStack(alignment: .top, spacing: 16) {
+                    FeatureCard(number: "01", title: "Подключите Wine", text: "Любая совместимая самостоятельная сборка для macOS.", icon: "cpu")
+                    FeatureCard(number: "02", title: "Создайте окружение", text: "Свой диск C:, реестр и настройки для каждой задачи.", icon: "shippingbox")
+                    FeatureCard(number: "03", title: "Откройте программу", text: "Запускайте EXE и MSI. Сохраняйте ярлыки в библиотеке.", icon: "play.rectangle")
+                }
+                HStack {
+                    Text("Движки Wine").font(.title2.weight(.semibold))
+                    Spacer()
+                    Button { model.chooseEngine() } label: { Label("Добавить движок", systemImage: "plus") }.buttonStyle(.borderedProminent).disabled(model.busy)
+                }
+                if model.engines.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "cpu").font(.system(size: 34)).foregroundStyle(.secondary)
+                        Text("Начните с движка Wine").font(.headline)
+                        Text("Для Apple Silicon выбирайте совместимый ARM64-движок.\nСборки Intel зависят от Rosetta; архитектура появится после подключения.")
+                            .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                        Link("Сборки Wine Intel (требуют Rosetta) ↗", destination: URL(string: "https://github.com/Gcenx/macOS_Wine_builds/releases")!)
+                    }.frame(maxWidth: .infinity).padding(32).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 18))
+                } else {
+                    ForEach(model.engines) { engine in
+                        HStack(spacing: 16) {
+                            Image(systemName: "cpu.fill").font(.title).foregroundStyle(accent).frame(width: 48, height: 48).background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(engine.name).font(.headline)
+                        Text(engine.version).font(.caption).foregroundStyle(.secondary)
+                        Label(engine.compatibility, systemImage: engine.isNative ? "checkmark.shield" : "info.circle")
+                            .font(.caption).foregroundStyle(engine.isNative ? .green : .orange)
+                                Text(engine.wine).font(.caption2).foregroundStyle(.tertiary).lineLimit(2).textSelection(.enabled)
+                            }
+                            Spacer()
+                            Label("Подключён", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                        }.padding(18).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Обновления под вашим контролем", systemImage: "arrow.triangle.2.circlepath").font(.headline)
+                    Text("Добавляйте новые версии как отдельные движки. Существующие окружения продолжают использовать выбранную сборку. Автоматического скачивания и замены файлов в этой версии нет.")
+                        .foregroundStyle(.secondary)
+                    Text("Для смены движка создайте новое окружение. Это сохраняет рабочую конфигурацию.").font(.caption).foregroundStyle(.secondary)
+                }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                HStack {
+                    Text("Vela 0.2 · Preview · MIT").font(.caption).foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Папка данных") { model.showFolder(model.core.root.path) }.buttonStyle(.link)
+                }
+            }.padding(32)
+        }
+    }
+}
+struct FeatureCard: View {
+    let number: String, title: String, text: String, icon: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack { Image(systemName: icon).font(.title2).foregroundStyle(accent); Spacer(); Text(number).font(.caption.monospaced()).foregroundStyle(.tertiary) }
+            Text(title).font(.headline)
+            Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.padding(20).frame(maxWidth: .infinity, minHeight: 158, alignment: .topLeading)
+            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct CreateBottleView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var engineID = ""
+    @State private var dpi = 192
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Label("Новое окружение", systemImage: "shippingbox").font(.title2.weight(.semibold))
+            Text("Каждое окружение хранит собственные программы, реестр и настройки Windows.").foregroundStyle(.secondary)
+            TextField("Название, например «Работа»", text: $name).textFieldStyle(.roundedBorder)
+            Picker("Движок Wine", selection: $engineID) { ForEach(model.engines) { Text("\($0.name) · \($0.compatibility)").tag($0.id) } }
+            Picker("Масштаб Windows", selection: $dpi) {
+                ForEach([96, 120, 144, 168, 192, 240, 288], id: \.self) { value in Text("\(value * 100 / 96)%").tag(value) }
+            }
+            if model.engines.first(where: { $0.id == engineID })?.supports_x86_32 == false {
+                Text("Этот движок запускает 64-битные Windows-программы. Старые 32-битные приложения и установщики пока не поддерживаются.").font(.caption).foregroundStyle(.secondary)
+            }
+            if model.engines.first(where: { $0.id == engineID })?.needsRosetta == true {
+                Text("Этот Intel-движок зависит от Rosetta. Для работы после прекращения её поддержки выберите ARM64 + FEX.").font(.caption).foregroundStyle(.orange)
+            }
+            Text("64-битное окружение. Запуск 32-битных программ зависит от поддержки WoW64 выбранной сборкой.")
+                .font(.caption).foregroundStyle(.secondary)
+            if model.busy { HStack { ProgressView().controlSize(.small); Text("Wine создаёт диск C: и реестр. Это может занять до двух минут.").font(.caption) } }
+            HStack {
+                Spacer()
+                Button("Отмена") { dismiss() }.disabled(model.busy)
+                Button("Создать") {
+                    model.perform("Создаём окружение…", request: ["op":"create", "name":name, "engine_id":engineID, "dpi":dpi], notice: "Окружение готово.") {
+                        model.selection = model.bottles.last?.id
+                        dismiss()
+                    }
+                }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engineID.isEmpty || model.busy)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }.padding(28).frame(width: 490).onAppear {
+            engineID = model.engines.first?.id ?? ""
+            dpi = (NSScreen.main?.backingScaleFactor ?? 1) >= 2 ? 192 : 96
+        }.interactiveDismissDisabled(model.busy)
+    }
+}
+
+struct BottleView: View {
+    @EnvironmentObject private var model: AppModel
+    let bottle: Bottle
+    @State private var tab = "library"
+    @State private var addingShortcut = false
+    @State private var confirmingStop = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .top, spacing: 16) {
+                Image(systemName: "shippingbox.fill").font(.system(size: 32)).foregroundStyle(accent)
+                    .frame(width: 66, height: 66).background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 18))
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(bottle.name).font(.system(size: 30, weight: .semibold, design: .rounded))
+                    Text(model.engines.first { $0.id == bottle.engine_id }?.version ?? "Движок недоступен").font(.callout).foregroundStyle(.secondary)
+                    if let engine = model.engines.first(where: { $0.id == bottle.engine_id }) {
+                        Text(engine.compatibility).font(.caption).foregroundStyle(engine.isNative ? .green : .orange)
+                    }
+                    Text(bottle.status == "ready" ? "Окружение готово · 64-bit" : "Инициализация не завершена")
+                        .font(.caption).foregroundStyle(bottle.status == "ready" ? .green : .orange)
+                }
+                Spacer()
+                Button { model.chooseProgram(for: bottle) } label: { Label("Открыть EXE / MSI", systemImage: "play.fill") }
+                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy || bottle.status != "ready")
+            }.padding(.top, 24)
+            Picker("Раздел", selection: $tab) {
+                Text("Программы").tag("library")
+                Text("Настройки").tag("settings")
+                Text("Журнал").tag("log")
+            }.pickerStyle(.segmented).frame(maxWidth: 410)
+            if bottle.status != "ready" {
+                HStack {
+                    Label("Откройте журнал, чтобы узнать причину сбоя.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    Spacer()
+                    Button("Повторить") { model.perform("Инициализируем Wine…", request: ["op":"initialize", "id":bottle.id]) }.disabled(model.busy)
+                }.font(.callout)
+            }
+            if tab == "library" { library }
+            else if tab == "settings" { BottleSettingsView(bottle: bottle) }
+            else { LogView(bottle: bottle) }
+        }.padding(32)
+            .sheet(isPresented: $addingShortcut) { AddShortcutView(bottle: bottle) }
+            .alert("Остановить программы в «\(bottle.name)»?", isPresented: $confirmingStop) {
+                Button("Отмена", role: .cancel) {}
+                Button("Остановить", role: .destructive) { model.perform("Останавливаем Wine…", request: ["op":"stop", "id":bottle.id], notice: "Команда остановки отправлена этому окружению.") }
+            } message: { Text("Несохранённые изменения в программах этого окружения могут быть потеряны.") }
+    }
+    var library: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    Text("Ваши программы").font(.title3.weight(.semibold))
+                    Spacer()
+                    Button { addingShortcut = true } label: { Label("Добавить ярлык", systemImage: "plus") }.disabled(model.busy || bottle.status != "ready")
+                }
+                if bottle.shortcuts.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "app.dashed").font(.system(size: 40)).foregroundStyle(.secondary)
+                        Text("Здесь будут ваши программы").font(.headline)
+                        Text("Откройте установщик, затем добавьте ярлык\nна установленный EXE с диска C:.").multilineTextAlignment(.center).foregroundStyle(.secondary)
+                        Button("Открыть диск C:") { model.showFolder(model.prefix(bottle) + "/drive_c") }.buttonStyle(.link)
+                    }.frame(maxWidth: .infinity).padding(36).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 18))
+                }
+                ForEach(bottle.shortcuts) { shortcut in
+                    HStack(spacing: 14) {
+                        Image(systemName: "app.fill").font(.title).foregroundStyle(accent)
+                        VStack(alignment: .leading, spacing: 5) { Text(shortcut.name).font(.headline); Text(shortcut.executable).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+                        Spacer()
+                        Button { model.perform("Передаём программу Wine…", request: ["op":"run_shortcut", "id":bottle.id, "shortcut_id":shortcut.id], notice: "Запуск передан Wine. Результат доступен в журнале.") } label: { Image(systemName: "play.fill") }.disabled(model.busy)
+                        Menu {
+                            Button("Показать файл") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: shortcut.executable)]) }
+                            Button("Убрать ярлык", role: .destructive) { model.perform("Убираем ярлык…", request: ["op":"remove_shortcut", "id":bottle.id, "shortcut_id":shortcut.id]) }
+                        } label: { Image(systemName: "ellipsis").padding(.horizontal, 4) }
+                            .menuStyle(.borderlessButton)
+                            .frame(width: 40, height: 32)
+                            .padding(.trailing, 8)
+                            .disabled(model.busy)
+                    }.padding(18).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 14))
+                }
+                Text("Инструменты окружения").font(.headline).padding(.top, 10)
+                HStack(spacing: 12) {
+                    tool("Настройки Wine", icon: "slider.horizontal.3", name: "winecfg")
+                    tool("Реестр", icon: "list.bullet.rectangle", name: "regedit")
+                    tool("Консоль", icon: "terminal", name: "cmd")
+                    tool("Удаление программ", icon: "app.badge", name: "uninstaller")
+                }
+                HStack {
+                    Button { model.showFolder(model.prefix(bottle) + "/drive_c") } label: { Label("Диск C:", systemImage: "folder") }
+                    Spacer()
+                    Button { confirmingStop = true } label: { Label("Остановить", systemImage: "stop.circle") }.foregroundStyle(.orange).disabled(model.busy)
+                }.padding(.top, 10)
+                Text("Окружения разделяют настройки Windows. Программы Wine имеют доступ к файлам Mac с правами вашего пользователя.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+            }
+        }
+    }
+    func tool(_ label: String, icon: String, name: String) -> some View {
+        Button { model.tool(name, bottle: bottle) } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                Image(systemName: icon).font(.title2).foregroundStyle(accent)
+                Text(label).font(.callout)
+            }.frame(maxWidth: .infinity, minHeight: 70, alignment: .leading).padding(14)
+                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain).disabled(model.busy || bottle.status != "ready")
+    }
+}
+
+struct BottleSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+    let bottle: Bottle
+    @State private var name = ""
+    @State private var environment = ""
+    @State private var dpi = 96
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Общие").font(.headline)
+                TextField("Название окружения", text: $name).textFieldStyle(.roundedBorder)
+                Text("Размер интерфейса Windows").font(.headline).padding(.top, 8)
+                HStack {
+                    Picker("Масштаб", selection: $dpi) {
+                        ForEach([96, 120, 144, 168, 192, 240, 288], id: \.self) { value in Text("\(value * 100 / 96)%").tag(value) }
+                    }.frame(maxWidth: 260)
+                    Button("Применить масштаб") {
+                        model.perform("Меняем масштаб Windows…", request: ["op":"set_dpi", "id":bottle.id, "dpi":dpi], notice: "Масштаб сохранён. Перезапустите Windows-программы, чтобы применить его.")
+                    }.disabled(model.busy || bottle.status != "ready")
+                }
+                Text("Для Retina обычно удобно 200%. Новый масштаб действует после перезапуска Windows-программ.").font(.caption).foregroundStyle(.secondary)
+                Text("Версия Windows, звук и отображение").font(.headline).padding(.top, 8)
+                Button("Открыть настройки Wine") { model.tool("winecfg", bottle: bottle) }.disabled(model.busy || bottle.status != "ready")
+                Text("Изменения применяются в этом окружении. Для графических библиотек нужна совместимая сборка движка.").font(.caption).foregroundStyle(.secondary)
+                Text("Переменные окружения").font(.headline).padding(.top, 8)
+                Text("По одной переменной KEY=VALUE в строке. Они применятся при следующем запуске.").font(.callout).foregroundStyle(.secondary)
+                TextEditor(text: $environment).font(.system(.body, design: .monospaced)).frame(minHeight: 180).padding(8)
+                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                Text("Примеры: WINEDEBUG=+seh, WINEDLLOVERRIDES=d3d11=n,b. Переменные пути к окружению и движку задаёт Vela.").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Сохранить") { save() }.buttonStyle(.borderedProminent).disabled(model.busy)
+                    Spacer()
+                    Button("Показать папку окружения") { model.showFolder(model.prefix(bottle)) }
+                }
+            }.padding(.top, 4)
+        }.onAppear {
+            name = bottle.name
+            dpi = bottle.dpi ?? 96
+            environment = bottle.environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        }
+    }
+    func save() {
+        var values: [String: String] = [:]
+        for line in environment.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            guard let split = trimmed.firstIndex(of: "=") else { model.error = "Ожидается KEY=VALUE: \(trimmed)"; return }
+            let key = String(trimmed[..<split]).trimmingCharacters(in: .whitespaces)
+            if values[key] != nil { model.error = "Переменная \(key) указана дважды"; return }
+            values[key] = String(trimmed[trimmed.index(after: split)...])
+        }
+        model.perform("Сохраняем настройки…", request: ["op":"save_settings", "id":bottle.id, "name":name, "environment":values], notice: "Настройки сохранены. Применятся при следующем запуске.")
+    }
+}
+
+struct LogView: View {
+    @EnvironmentObject private var model: AppModel
+    let bottle: Bottle
+    @State private var text = ""
+    @State private var path: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Последняя операция · до 128 КБ").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Все журналы") { model.showFolder(model.core.root.appendingPathComponent("logs").path) }
+                Button { Task { await reload() } } label: { Label("Обновить", systemImage: "arrow.clockwise") }
+            }
+            ScrollView([.vertical, .horizontal]) {
+                Text(text.isEmpty ? "Загрузка…" : text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading).padding(14)
+            }.background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            if let path { Text(path).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled) }
+        }.task { await reload() }.task(id: bottle.last_log) { await reload() }
+    }
+    func reload() async {
+        do { let log = try await model.core.call(["op":"read_log", "id":bottle.id], as: LogReply.self); text = log.text; path = log.path }
+        catch { model.error = error.localizedDescription }
+    }
+}
+
+struct AddShortcutView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let bottle: Bottle
+    @State private var name = ""
+    @State private var path = ""
+    @State private var arguments = ""
+    @State private var directory = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Добавить ярлык").font(.title2.weight(.semibold))
+            TextField("Название программы", text: $name).textFieldStyle(.roundedBorder)
+            HStack { TextField("Путь к программе", text: $path).textFieldStyle(.roundedBorder); Button("Выбрать…") { chooseFile() } }
+            Text("Аргументы запуска · каждый с новой строки").font(.callout)
+            TextEditor(text: $arguments).font(.system(.body, design: .monospaced)).frame(height: 90).border(.quaternary)
+            Text("Аргументы передаются буквально. macOS shell не используется.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("Рабочая папка · по умолчанию рядом с EXE", text: $directory).textFieldStyle(.roundedBorder)
+                Button("Выбрать…") { chooseDirectory() }
+            }
+            HStack {
+                Spacer(); Button("Отмена") { dismiss() }
+                Button("Добавить") {
+                    var request: [String: Any] = ["op":"add_shortcut", "id":bottle.id, "name":name, "path":path,
+                        "arguments":arguments.components(separatedBy: "\n").filter { !$0.isEmpty }]
+                    if !directory.isEmpty { request["directory"] = directory }
+                    model.perform("Добавляем ярлык…", request: request) { dismiss() }
+                }.buttonStyle(.borderedProminent).disabled(name.isEmpty || path.isEmpty || model.busy).keyboardShortcut(.defaultAction)
+            }
+        }.padding(28).frame(width: 560).interactiveDismissDisabled(model.busy)
+    }
+    func chooseFile() {
+        let p = NSOpenPanel(); p.title = "Выберите программу"; p.directoryURL = URL(fileURLWithPath: model.prefix(bottle) + "/drive_c")
+        p.allowedContentTypes = ["exe", "msi", "bat", "cmd"].compactMap { UTType(filenameExtension: $0) }
+        if p.runModal() == .OK, let url = p.url { path = url.path; if name.isEmpty { name = url.deletingPathExtension().lastPathComponent } }
+    }
+    func chooseDirectory() {
+        let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false
+        if p.runModal() == .OK, let url = p.url { directory = url.path }
+    }
+}

@@ -1,0 +1,4 @@
+To opt into storing a library beside Vela.app, rename this file to Portable.
+The ordinary default is ~/Library/Application Support/Vela.
+Do not enable this in Documents without granting the app appropriate folder access.
+Move an existing library separately; this marker does not migrate its contents.

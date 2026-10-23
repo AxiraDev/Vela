@@ -1,0 +1,14 @@
+Vela application icon
+Generated with the built-in image_gen tool; final image copied into the project.
+
+Initial prompt:
+Use case: logo-brand.
+Asset type: final macOS desktop application icon for Vela, a native SwiftUI app that manages Windows application environments.
+Primary request: design one polished, original app icon built around a single stylized sailboat, consistent with the app's existing periwinkle and violet palette and sailboat identity.
+Style: refined macOS icon, sculpted satin glass and softly beveled geometry, restrained depth, crisp large shapes that remain legible at 16–32 px. A luminous periwinkle sail and a second smaller pale blue sail, a subtle curved hull, just one simple wave. Calm dark indigo rounded-square tile, gentle violet-blue illumination, clean high contrast. Elegant and simple, no busy details.
+Composition: a single centered icon, straight-on, square 1024 x 1024 canvas. The rounded-square tile should occupy roughly 90% of canvas, with a small uniform transparent margin outside the tile. Keep the sailboat comfortably inside the tile. Artwork only, not a mockup, no surrounding interface.
+Text: none.
+Constraints: genuinely transparent background outside the rounded-square tile, preserve alpha. No letters, words, watermark, wine glass, operating system logos, border frame, extra icons or alternate designs.
+
+Final refinement prompt:
+Edit target: the attached Vela macOS sailboat app icon. Preserve the existing sailboat design, shapes, colors, soft sculpted lighting and rounded-square blue-violet tile exactly. Fix ONLY the transparency mask and outer edges. The entire rounded-square tile and all artwork inside it MUST be fully opaque (alpha 255), fully visible with all colors intact. Only the empty area outside the rounded-square tile should be genuinely transparent (alpha 0), with a clean antialiased edge. Remove ALL stray white/blue pixels and speckles outside the tile, especially above its top edge. There must be no transparent holes inside the tile. No text, no extra objects. Keep a square canvas and approximately the same icon size and centered placement.

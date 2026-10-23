@@ -1,0 +1,14 @@
+--- a/server/registry.c
++++ b/server/registry.c
+@@ -1814,8 +1814,11 @@
+     if (prefix_type == PREFIX_64BIT)
+     {
+         supported_machines[count++] = IMAGE_FILE_MACHINE_ARM64;
++#ifndef WINE_HIGH_USER_SHARED_DATA
++        /* A high-address runtime cannot create a 32-bit TEB. */
+         supported_machines[count++] = IMAGE_FILE_MACHINE_I386;
+         if (supports_aarch32()) supported_machines[count++] = IMAGE_FILE_MACHINE_ARMNT;
++#endif
+         supported_machines[count++] = IMAGE_FILE_MACHINE_AMD64;
+     }
+ #else

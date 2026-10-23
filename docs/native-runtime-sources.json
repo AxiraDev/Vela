@@ -1,0 +1,100 @@
+{
+  "wine": {
+    "version": "11.18",
+    "revision": "6880117619afdf62b4ccc40a8c6268c86613131f",
+    "source": "https://github.com/wine-mirror/wine",
+    "patches": 38
+  },
+  "fex": {
+    "revision": "0df84d3844bcdb87bb7d3f5b8fb0959cd009c038",
+    "source": "https://github.com/FEX-Emu/FEX",
+    "patches": 5
+  },
+  "patch_provider": {
+    "source": "https://github.com/Broyojo/hadron",
+    "tag": "v0.3.1",
+    "binary_release_commit": "3f5f18e2c08e22eb539f1fbbee52d4ba3d9e05c4",
+    "patch_bytes_match_binary_commit": true
+  },
+  "build": {
+    "macos_deployment_target": "26.5",
+    "high_user_shared_data": true,
+    "supports_x86_32": false,
+    "architectures": [
+      "arm64ec",
+      "aarch64",
+      "i386"
+    ]
+  },
+  "inputs": {
+    "Hadron-0.3.1.dmg": {
+      "sha256": "c2b1ac78b0151bb634b4a3eced8e305bddbd410d1d1e4dda99b36a9c96998192",
+      "bytes": 282375878
+    },
+    "hadron-source.tar.gz": {
+      "sha256": "4ed7ef847bf1e9614ef944adf607677dfa163f879f6b45c56ee91e831cde6577",
+      "bytes": 621969
+    },
+    "wine-source.tar.gz": {
+      "sha256": "47ca79f48c8ae1c455c47b7cdb35c0e4b64f387d0bd4b731f21935b2f6f91df2",
+      "bytes": 75651546
+    }
+  },
+  "dependencies": {
+    "gnutls": {
+      "version": "3.8.13",
+      "bottle_sha256": "a2334eb50a165945aad7df804a3e846053de62973f6aee8060fec8c16c59446b",
+      "source_formula": "Formula/g/gnutls.rb",
+      "source_url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz"
+    },
+    "gmp": {
+      "version": "6.3.0",
+      "bottle_sha256": "fa46330de5d003bd9294ae042c8f4ae0a51bcb8c57de2c94c073ff4a7ffa10c3",
+      "source_formula": "Formula/g/gmp.rb",
+      "source_url": "https://ftpmirror.gnu.org/gmp/gmp-6.3.0.tar.xz"
+    },
+    "libidn2": {
+      "version": "2.3.8",
+      "bottle_sha256": "f8f1b459f15a4ac11d2dce786a9140509782227b7d499cbdf3a1279dd325d90b",
+      "source_formula": "Formula/lib/libidn2.rb",
+      "source_url": "https://ftpmirror.gnu.org/libidn/libidn2-2.3.8.tar.gz"
+    },
+    "libtasn1": {
+      "version": "4.21.0",
+      "bottle_sha256": "ae01713eec0bd922b903ed2bf514dc085ec3108636c4ead84614b23a2c33f267",
+      "source_formula": "Formula/lib/libtasn1.rb",
+      "source_url": "https://ftpmirror.gnu.org/libtasn1/libtasn1-4.21.0.tar.gz"
+    },
+    "libunistring": {
+      "version": "1.5",
+      "bottle_sha256": "b803434415743b204ffc6bc5415ebfceeaf3dbcb86c0c4ea8a6fc63d2a04f441",
+      "source_formula": "Formula/lib/libunistring.rb",
+      "source_url": "https://ftpmirror.gnu.org/libunistring/libunistring-1.5.tar.gz"
+    },
+    "nettle": {
+      "version": "4.0",
+      "bottle_sha256": "ba11eb261bc502c28c9cd695f8354306d0a31cb1e55c3d3f1568e051293a0f10",
+      "source_formula": "Formula/n/nettle.rb",
+      "source_url": "https://ftpmirror.gnu.org/nettle/nettle-4.0.tar.gz"
+    },
+    "p11-kit": {
+      "version": "0.26.5",
+      "bottle_sha256": "fd108a936783ac40b4c3ea4dda639e7d22faa063e9f40f92b0ed2b2a7e99efa6",
+      "source_formula": "Formula/p/p11-kit.rb",
+      "source_url": "https://github.com/p11-glue/p11-kit/releases/download/0.26.5/p11-kit-0.26.5.tar.xz"
+    },
+    "gettext": {
+      "version": "1.0",
+      "bottle_sha256": "3af5392939e50a6ef73e42799fc3ead6ef72fe0040c0a45183d04a4008306d6a",
+      "source_formula": "Formula/g/gettext.rb",
+      "source_url": "https://ftpmirror.gnu.org/gettext/gettext-1.0.tar.gz"
+    }
+  },
+  "local_patches": [
+    {
+      "path": "runtime/patches/0001-report-64-bit-architectures-for-high-address-runtime.patch",
+      "sha256": "933cb69302b7f9625113e0cab21f812bcf7a4ecefe83e529f399f28f6f066b4e",
+      "license": "LGPL-2.1-or-later"
+    }
+  ]
+}
